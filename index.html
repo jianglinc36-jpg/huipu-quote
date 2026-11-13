@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v111</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v112</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -2561,11 +2561,15 @@ async function addItem(model){
   const ov = model? (DB.overrides[model]||{}) : {};
   const cfg=readCfg(), term=readTerms().term;
   const price = p? defaultPrice(p,term,cfg) : 0;
-  const specRows = dedupeSpecRows(ov.specRows? ov.specRows.map(r=>[r[0],r[1]]) : (p? buildSpecRows(p) : [["Power",""],["Voltage",""]]));
+  // 后台资料库动过字段（spec_text/功率/材质/箱规等）→ 一律以资料库最新数据为准；
+  // 否则才回退旧快照 ov.specRows/ov.pack（员工历史报价时存的参数版本）
+  const ADMIN_LIB_KEYS=["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","prod_size","power","voltage","windspeed","gears","material","category","brand","spec_text"];
+  const adminTouched = ADMIN_LIB_KEYS.some(k=> ov[k]!==undefined);
+  const specRows = dedupeSpecRows((adminTouched&&p)? buildSpecRows(p) : (ov.specRows? ov.specRows.map(r=>[r[0],r[1]]) : (p? buildSpecRows(p) : [["Power",""],["Voltage",""]])));
   const packRows = p? buildPackRows(p) : [];
   items.push({
     model: model||"", desc: p? prodName(p) : (model||""), specRows: specRows, spec: rowsToText(specRows),
-    pack: ov.pack!==undefined? ov.pack : rowsToText(packRows),
+    pack: ((adminTouched&&p) ? rowsToText(packRows) : (ov.pack!==undefined? ov.pack : rowsToText(packRows))),
     img: (ov.img!==undefined && ov.img!=="") ? ov.img : (((IMAGES[model]||[])[0]) || ""), imgIdx: 0,
     packing: p?(p.packing||""):"", moq: p?(p.moq||""):"", qty: p? (parseMoq(p.moq)||200):1, price: price
   });
@@ -5080,7 +5084,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=111').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=112').catch(function(e){ /* offline not critical */ });
     });
   }
 
