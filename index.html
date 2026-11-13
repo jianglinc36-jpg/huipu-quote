@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v94（1113 后端改为独立 Supabase·永久托管可登录同步·主程序+后台同改造）</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v95（1113 Supabase 凭据已接入·员工实时同步·永久网址）</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -1349,8 +1349,8 @@ function restore(){
 /* ---------- cloud sync + workspace / employee permissions ---------- */
 /* ===== 独立 Supabase 云端（替代 WorkBuddy 平台云端；可在任意域名/永久托管下登录并实时同步）=====
    配置：把下面 SUPABASE_URL / SUPABASE_ANON 换成你自己的 Supabase 项目即可。 */
-const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-const SUPABASE_ANON = "YOUR-ANON-KEY";
+const SUPABASE_URL = "https://viocphguqimuiobehbqg.supabase.co";
+const SUPABASE_ANON = "sb_publishable_mAgzX2kueXw2GHr-tdSJuA_SD360gRq";
 let cloud = null;
 try {
   if (typeof supabase !== "undefined" && supabase.createClient && SUPABASE_URL.indexOf("YOUR-PROJECT")<0 && SUPABASE_ANON.indexOf("YOUR-ANON")<0) {
@@ -5122,7 +5122,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=100').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=101').catch(function(e){ /* offline not critical */ });
     });
   }
 
