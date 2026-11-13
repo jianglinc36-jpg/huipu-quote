@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=108').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=109').catch(function () {});
     });
   }
 </script>
@@ -117,9 +117,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
     </div>
     <div id="paneEmail">
       <input id="email" placeholder="邮箱" value="1972838168@qq.com">
-      <input id="emailPwd" type="password" placeholder="密码（新用户注册时设置）">
-      <div class="bar"><input id="emailCode" placeholder="验证码（免密登录时使用）" style="flex:1" maxlength="8"><button class="btn ghost sm" id="emailSend">获取验证码</button></div>
-      <div class="bar"><button class="btn" id="emailPwdLogin" style="flex:1">密码登录</button><button class="btn ghost" id="emailOtpLogin" style="flex:1">验证码登录</button></div>
+      <input id="emailPwd" type="password" placeholder="密码">
+      <div class="bar"><button class="btn" id="emailPwdLogin" style="width:100%">密码登录</button></div>
       <div class="err" id="emailErr"></div>
     </div>
     <div class="hint" style="margin-top:10px">仅工作区管理员可进入后台。登录后数据加载于云端，与报价软件共用同一账号体系。</div>
@@ -262,24 +261,10 @@ $("phoneLogin").onclick=async function(){
   try{ localStorage.setItem("huipu_my_phone",ph); }catch(e){}
   onAuthOK(ph);
 };
-$("emailSend").onclick=async function(){
-  var email=$("email").value.trim(); $("emailErr").textContent="";
-  this.disabled=true; this.textContent="发送中…";
-  var r=await cloud.auth.sendOtp({email:email});
-  if(r.error){ $("emailErr").textContent=r.error.message||"发送失败"; this.disabled=false; this.textContent="获取验证码"; return; }
-  pendingEmail={email:email,verificationId:r.data&&r.data.verificationId,isExistingUser:r.data&&r.data.isExistingUser};
-  this.textContent="已发送"; var b=this; setTimeout(function(){ b.disabled=false; b.textContent="重新获取"; },60000);
-};
 $("emailPwdLogin").onclick=async function(){
   var r=await cloud.auth.signInWithPassword({email:$("email").value.trim(),password:$("emailPwd").value});
   if(r.error){ $("emailErr").textContent="账号或密码错误"; return; }
   onAuthOK("");
-};
-$("emailOtpLogin").onclick=async function(){
-  if(!pendingEmail){ $("emailErr").textContent="请先获取验证码"; return; }
-  var r=await cloud.auth.verifyOtp({email:pendingEmail.email,verificationId:pendingEmail.verificationId,isExistingUser:pendingEmail.isExistingUser,token:$("emailCode").value.trim()});
-  if(r.error){ $("emailErr").textContent=(r.error&&r.error.message)||"验证失败"; return; }
-  pendingEmail=null; onAuthOK("");
 };
 
 async function onAuthOK(phone){
@@ -351,7 +336,7 @@ function effProduct(m){
   var x=Object.assign({},base);
   if(b){ ["price_rmb","price_usd_exw","ref_prices","moq","packing","power","voltage","windspeed","gears","material","net_weight","gross_weight","inner_box","outer_box","prod_size","spec_text","category","brand"].forEach(function(k){ if((x[k]===undefined||x[k]===null||x[k]==="")&&b[k]!==undefined&&b[k]!=="") x[k]=b[k]; }); }
   var ov=DB.overrides[m]||{};
-  ["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","category"].forEach(function(k){ if(ov[k]!==undefined&&ov[k]!==null&&ov[k]!=="") x[k]=ov[k]; });
+  ["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box"].forEach(function(k){ if(ov[k]!==undefined&&ov[k]!==null&&ov[k]!=="") x[k]=ov[k]; });
   if(ov.img) x.img=ov.img; else if(IMAGES[m]&&IMAGES[m].length) x.img=IMAGES[m][0];
   x._src = cus? "custom" : (Object.keys(ov).some(function(k){return k!=="img";}) ? "override" : "builtin");
   return x;
@@ -693,35 +678,14 @@ async function renderMembers(M){
 }
 
 /* ---------- 资料库 ---------- */
-var _dbSearch="",_dbCat="",_dbSort="model";
-function dbAllModels(){
-  var customs=Object.keys(DB.custom||{}), ovs=Object.keys(DB.overrides||{}).filter(function(m){ return Object.keys(DB.overrides[m]).some(function(k){return k!=="img";}); });
-  var all={}; PRODUCTS.forEach(function(p){ all[p.model]=1; }); customs.forEach(function(m){ all[m]=1; }); ovs.forEach(function(m){ all[m]=1; });
-  return Object.keys(all);
-}
-function dbCategories(){
-  var cats={};
-  dbAllModels().forEach(function(m){ var p=effProduct(m); var c=String((p&&p.category)||"").trim(); if(c) cats[c]=(cats[c]||0)+1; });
-  return cats;
-}
+var _dbSearch="";
 function renderDb(M){
   var customs=Object.keys(DB.custom||{}), ovs=Object.keys(DB.overrides||{}).filter(function(m){ return Object.keys(DB.overrides[m]).some(function(k){return k!=="img";}); });
-  var cats=dbCategories(), catKeys=Object.keys(cats).sort();
-  var models=dbAllModels();
-  if(_dbCat) models=models.filter(function(m){ var p=effProduct(m); return p&&String(p.category||"").trim()===_dbCat; });
-  if(_dbSearch) models=models.filter(function(m){ return m.toLowerCase().indexOf(_dbSearch.toLowerCase())>=0; });
-  if(_dbSort==="category") models.sort(function(a,b){ var ca=String((effProduct(a)||{}).category||""),cb=String((effProduct(b)||{}).category||""); if(ca!==cb) return ca.localeCompare(cb,"zh"); return a.localeCompare(b); });
-  else if(_dbSort==="price_asc"||_dbSort==="price_desc"){ var dir=_dbSort==="price_asc"?1:-1; models.sort(function(a,b){ var pa=Number((effProduct(a)||{}).price_rmb)||0, pb=Number((effProduct(b)||{}).price_rmb)||0; if(pa!==pb) return dir*(pa-pb); return a.localeCompare(b); }); }
-  else models.sort();
-  var catOpts='<option value="">全部类别（'+catKeys.length+'）</option>'+catKeys.map(function(c){ return '<option value="'+esc(c)+'"'+(_dbCat===c?" selected":"")+'>'+esc(c)+'（'+cats[c]+'）</option>'; }).join("");
-  var sortSel=[["model","排序：型号 A→Z"],["category","排序：按类别"],["price_asc","排序：底价 低→高"],["price_desc","排序：底价 高→低"]].map(function(o){ return '<option value="'+o[0]+'"'+(_dbSort===o[0]?" selected":"")+'>'+o[1]+'</option>'; }).join("");
+  var all={}; PRODUCTS.forEach(function(p){ all[p.model]=1; }); customs.forEach(function(m){ all[m]=1; }); ovs.forEach(function(m){ all[m]=1; });
+  var models=Object.keys(all).filter(function(m){ return !_dbSearch||m.toLowerCase().indexOf(_dbSearch.toLowerCase())>=0; }).sort();
   var h='<div class="card"><div class="bar">'
-    +'<input id="dbSearch" placeholder="搜索型号" style="width:150px" value="'+esc(_dbSearch)+'">'
-    +'<select id="dbCat" style="width:170px">'+catOpts+'</select>'
-    +'<select id="dbSort" style="width:150px">'+sortSel+'</select>'
+    +'<input id="dbSearch" placeholder="搜索型号" style="width:180px" value="'+esc(_dbSearch)+'">'
     +'<button class="btn sm" id="dbAdd">＋ 新增产品</button>'
-    +'<button class="btn sm ghost" id="dbBatch">📋 批量添加</button>'
-    +'<button class="btn sm ghost" id="dbCatMgr">🏷 管理分类</button>'
     +'<span class="hint">内置 '+PRODUCTS.length+' · 自定义 '+customs.length+' · 有覆盖 '+ovs.length+'</span>'
     +'<span style="flex:1"></span><span class="hint">改动保存后员工端打开报价软件即自动同步</span></div>';
   h+='<div class="tblwrap"><table><thead><tr><th>图</th><th class="l">型号</th><th class="l">类别</th><th>功率/电压</th><th>装箱量</th><th>底价RMB</th><th>底价USD</th><th>来源</th><th>操作</th></tr></thead><tbody>';
@@ -729,9 +693,8 @@ function renderDb(M){
     var p=effProduct(m); if(!p) return;
     var src=p._src==="custom"?'<span class="badge">自定义</span>':(p._src==="override"?'<span class="badge warn">已改</span>':'<span class="badge gray">内置</span>');
     var img=prodImg(m);
-    var cat=String(p.category||"").trim();
     h+='<tr><td>'+(img?'<img class="pv-img" src="'+img+'">':"")+'</td>'
-     +'<td class="l"><b>'+esc(m)+'</b></td><td class="l">'+(cat?'<a href="javascript:void(0)" data-cat="'+esc(cat)+'" style="color:var(--brand2)">'+esc(cat)+'</a>':"")+'</td>'
+     +'<td class="l"><b>'+esc(m)+'</b></td><td class="l">'+esc(p.category||"")+'</td>'
      +'<td>'+esc((p.power||"")+" "+(p.voltage||""))+'</td><td>'+esc(p.packing||p.moq||"")+'</td>'
      +'<td>'+(p.price_rmb!=null?esc(p.price_rmb):"")+'</td><td>'+(p.price_usd_exw!=null?esc(p.price_usd_exw):"")+'</td>'
      +'<td>'+src+'</td>'
@@ -741,12 +704,7 @@ function renderDb(M){
   h+='</tbody></table></div></div>';
   M.innerHTML=h;
   $("dbSearch").oninput=function(){ _dbSearch=this.value; clearTimeout(renderDb._t); renderDb._t=setTimeout(function(){ showTab("db"); },300); };
-  $("dbCat").onchange=function(){ _dbCat=this.value; showTab("db"); };
-  $("dbSort").onchange=function(){ _dbSort=this.value; showTab("db"); };
   $("dbAdd").onclick=function(){ editProduct("",true); };
-  $("dbBatch").onclick=function(){ batchAddProducts(); };
-  $("dbCatMgr").onclick=function(){ manageCategories(); };
-  M.querySelectorAll("[data-cat]").forEach(function(a){ a.onclick=function(){ _dbCat=a.dataset.cat; showTab("db"); }; });
   M.querySelectorAll("[data-e]").forEach(function(b){ b.onclick=function(){ editProduct(b.dataset.e,false); }; });
   M.querySelectorAll("[data-img]").forEach(function(b){ b.onclick=function(){ editProductImg(b.dataset.img); }; });
   M.querySelectorAll("[data-d]").forEach(function(b){ b.onclick=async function(){
@@ -754,68 +712,6 @@ function renderDb(M){
     if(!confirm(isCustom?("删除自定义产品 "+m+"？"):("还原 "+m+" 为内置参数（删除所有后台改动）？"))) return;
     delete DB.custom[m]; delete DB.overrides[m];
     try{ await saveDb(); showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
-  };});
-}
-/* 批量添加产品：每行一个，格式 型号|类别|功率|电压|装箱量|底价RMB|底价USD */
-function batchAddProducts(){
-  var h='<h3>📋 批量添加产品</h3>'
-    +'<div class="hint" style="line-height:1.8;margin-bottom:6px">每行一个产品，用 <b>|</b> 分隔字段（顺序固定）：<br><b>型号 | 类别 | 功率 | 电压 | 装箱量 | 底价RMB | 底价USD</b><br>不需要的字段留空（连续两个 ||）。示例：<br><code style="background:#f4f6fa;padding:2px 6px;border-radius:4px">HP-03|高速吹风机|2000-2400W|220-240|12PCS/CTN|88|12.5</code><br><code style="background:#f4f6fa;padding:2px 6px;border-radius:4px">HP-04|高速吹风机|1800W||12PCS/CTN||10.8</code></div>'
-    +'<textarea id="batTxt" rows="10" style="width:100%" placeholder="HP-03|高速吹风机|2000-2400W|220-240|12PCS/CTN|88|12.5&#10;HP-04|高速吹风机|1800W||12PCS/CTN||10.8"></textarea>'
-    +'<div class="hint" style="margin:6px 0">型号已存在的会跳过（避免覆盖现有参数）。导入后都在「自定义」里，可再逐个编辑补全图片等。</div>'
-    +'<div class="bar"><button class="btn" id="batOk">导入</button><button class="btn ghost" id="batCancel">取消</button></div>';
-  openModal(h);
-  $("batCancel").onclick=closeModal;
-  $("batOk").onclick=async function(){
-    var txt=$("batTxt").value||"";
-    var lines=txt.split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
-    if(!lines.length){ alert("请先粘贴产品行"); return; }
-    var added=0,skipped=[],bad=[];
-    lines.forEach(function(ln){
-      var c=ln.split("|").map(function(s){ return s.trim(); });
-      var model=c[0]||"";
-      if(!model){ bad.push(ln); return; }
-      if(PROD_MAP[model]||DB.custom[model]||DB.overrides[model]){ skipped.push(model); return; }
-      var obj={};
-      if(c[1]) obj.category=c[1];
-      if(c[2]) obj.power=c[2];
-      if(c[3]) obj.voltage=c[3];
-      if(c[4]) obj.packing=c[4];
-      if(c[5]&&!isNaN(Number(c[5]))) obj.price_rmb=Number(c[5]);
-      if(c[6]&&!isNaN(Number(c[6]))) obj.price_usd_exw=Number(c[6]);
-      DB.custom[model]=obj; added++;
-    });
-    try{ await saveDb(); closeModal();
-      var msg="✅ 已添加 "+added+" 个产品";
-      if(skipped.length) msg+="\n跳过已存在 "+skipped.length+" 个："+skipped.slice(0,10).join(", ")+(skipped.length>10?"…":"");
-      if(bad.length) msg+="\n格式异常（缺型号）"+bad.length+" 行";
-      alert(msg); showTab("db");
-    }catch(e){ alert("保存失败："+(e.message||e)); }
-  };
-}
-/* 管理分类：重命名类别，该类别下所有产品一并更新 */
-function manageCategories(){
-  var cats=dbCategories(); var keys=Object.keys(cats).sort();
-  if(!keys.length){ alert("资料库里还没有任何类别。\n给产品填写「类别」字段后即可在这里统一管理。"); return; }
-  var h='<h3>🏷 管理分类</h3><div class="hint" style="margin-bottom:8px">修改名称并点「保存改名」后，该类别下所有产品的类别会一并更新并同步云端。</div>'
-    +'<div class="tblwrap" style="max-height:46vh"><table><thead><tr><th class="l">类别</th><th>产品数</th><th class="l">改名为</th><th>操作</th></tr></thead><tbody>';
-  keys.forEach(function(c,i){
-    h+='<tr><td class="l"><b>'+esc(c)+'</b></td><td>'+cats[c]+'</td><td><input id="crn_'+i+'" value="'+esc(c)+'" style="width:100%"></td><td><button class="btn sm" data-crn="'+i+'" data-old="'+esc(c)+'">保存改名</button></td></tr>';
-  });
-  h+='</tbody></table></div><div class="bar" style="margin-top:10px"><button class="btn ghost" id="crnClose">关闭</button></div>';
-  openModal(h);
-  $("crnClose").onclick=closeModal;
-  document.querySelectorAll("#modalBox [data-crn]").forEach(function(b){ b.onclick=async function(){
-    var oldName=b.dataset.old, nn=$("crn_"+b.dataset.crn).value.trim();
-    if(!nn){ alert("新名称不能为空"); return; }
-    if(nn===oldName){ alert("名称未变化"); return; }
-    if(!confirm("将类别「"+oldName+"」下的 "+(cats[oldName]||0)+" 个产品改名为「"+nn+"」？\n若新名称与已有类别相同，两组产品会合并到一起。")) return;
-    dbAllModels().forEach(function(m){
-      var p=effProduct(m); if(!p) return;
-      if(String(p.category||"").trim()!==oldName) return;
-      if(DB.custom[m]) DB.custom[m].category=nn;
-      else { if(!DB.overrides[m]) DB.overrides[m]={}; DB.overrides[m].category=nn; }
-    });
-    try{ await saveDb(); closeModal(); badge("分类已改名并同步 ✓",true); _dbCat=nn; showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
   };});
 }
 var PROD_FIELDS=[["model","型号 *"],["category","类别"],["brand","品牌"],["power","功率"],["voltage","电压"],["frequency","频率"],["windspeed","风速"],["gears","档位"],["material","材质"],["packing","装箱量/包装"],["net_weight","净重"],["gross_weight","毛重"],["inner_box","内盒"],["outer_box","外箱"],["prod_size","产品尺寸"],["moq","起订量"],["price_rmb","底价 RMB"],["price_usd_exw","底价 USD"],["spec_text","规格参数（多行）"]];
@@ -827,7 +723,7 @@ function editProduct(m,isNew){
     var k=f[0],v=p[k]!=null?p[k]:"";
     if(k==="spec_text") h+='<label style="grid-column:1/-1">'+esc(f[1])+'<textarea id="pf_'+k+'" rows="4">'+esc(v)+'</textarea></label>';
     else if(k==="model") h+='<label>'+esc(f[1])+'<input id="pf_'+k+'" value="'+esc(v)+'"'+(isNew?"":" readonly")+'></label>';
-    else if(k==="category") h+='<label>'+esc(f[1])+'<input id="pf_'+k+'" value="'+esc(v)+'" list="catDatalist" placeholder="输入或从已有分类选择"><datalist id="catDatalist">'+Object.keys(dbCategories()).sort().map(function(c){ return '<option value="'+esc(c)+'">'; }).join("")+'</datalist></label>';
+    else h+='<label>'+esc(f[1])+'<input id="pf_'+k+'" value="'+esc(v)+'"></label>';
   });
   h+='</div><div class="hint" style="margin:8px 0">'+(isNew?"新字段将写入自定义产品库。":"仅保存与内置参数不同的字段，内置库更新时仍能自动带入。")+'</div>'
    +'<div class="bar"><button class="btn" id="pfSave">保存</button><button class="btn ghost" id="pfCancel">取消</button></div>';
