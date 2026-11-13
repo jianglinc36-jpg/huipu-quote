@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=92').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=102').catch(function () {});
     });
   }
 </script>
@@ -110,16 +110,16 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   <div class="card">
     <h3>管理员登录</h3>
     <div class="tabs2">
-      <button type="button" id="ltPhone" class="on">📱 手机验证码</button>
-      <button type="button" id="ltEmail">✉ 邮箱登录</button>
+      <button type="button" id="ltPhone">📱 手机验证码</button>
+      <button type="button" id="ltEmail" class="on">✉ 邮箱登录</button>
     </div>
-    <div id="panePhone">
+    <div id="panePhone" style="display:none">
       <input id="phone" placeholder="手机号（11 位）" maxlength="11">
       <div class="bar"><input id="phoneCode" placeholder="验证码" style="flex:1" maxlength="8"><button class="btn ghost sm" id="phoneSend">获取验证码</button></div>
       <button class="btn" id="phoneLogin" style="width:100%">登 录</button>
       <div class="err" id="phoneErr"></div>
     </div>
-    <div id="paneEmail" style="display:none">
+    <div id="paneEmail">
       <input id="email" placeholder="邮箱">
       <input id="emailPwd" type="password" placeholder="密码（新用户注册时设置）">
       <div class="bar"><input id="emailCode" placeholder="验证码（免密登录时使用）" style="flex:1" maxlength="8"><button class="btn ghost sm" id="emailSend">获取验证码</button></div>
