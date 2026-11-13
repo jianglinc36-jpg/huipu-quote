@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=112').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=113').catch(function () {});
     });
   }
 </script>
@@ -334,9 +334,10 @@ function effProduct(m){
   if(cus&&b) base=Object.assign({},b,cus); else base=cus||b;
   if(!base) return null;
   var x=Object.assign({},base);
-  if(b){ ["price_rmb","price_usd_exw","ref_prices","moq","packing","power","voltage","windspeed","gears","material","net_weight","gross_weight","inner_box","outer_box","prod_size","spec_text","category","brand"].forEach(function(k){ if((x[k]===undefined||x[k]===null||x[k]==="")&&b[k]!==undefined&&b[k]!=="") x[k]=b[k]; }); }
+  var OVK=["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","prod_size","power","voltage","windspeed","gears","material","category","brand","spec_text"];
   var ov=DB.overrides[m]||{};
-  ["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","prod_size","power","voltage","windspeed","gears","material","category","brand","spec_text"].forEach(function(k){ if(ov[k]!==undefined&&ov[k]!==null&&ov[k]!=="") x[k]=ov[k]; });
+  if(b){ ["ref_prices"].concat(OVK).forEach(function(k){ if(ov[k]!==undefined) return; if((x[k]===undefined||x[k]===null||x[k]==="")&&b[k]!==undefined&&b[k]!=="") x[k]=b[k]; }); }
+  OVK.forEach(function(k){ if(ov[k]===undefined||ov[k]===null) return; x[k]= (ov[k]==="__CLEAR__")? "" : ov[k]; });
   if(ov.img) x.img=ov.img; else if(IMAGES[m]&&IMAGES[m].length) x.img=IMAGES[m][0];
   if(ov._hidden) x._hidden=true;
   x._src = cus? "custom" : (Object.keys(ov).some(function(k){return k!=="img"&&k!=="_hidden";}) ? "override" : "builtin");
@@ -806,9 +807,13 @@ function selectedModels(){
   return Array.prototype.slice.call(document.querySelectorAll(".dbChk:checked")).map(function(c){ return c.value; });
 }
 function batchWriteField(m,k,v){
+  if(v==="__CLEAR__"){ // 清空：写入 overrides 哨兵，effProduct 会转为空值并阻止内置库回填
+    var ov=DB.overrides[m]=DB.overrides[m]||{}; ov[k]="__CLEAR__"; return;
+  }
   if(DB.custom[m]){ DB.custom[m][k]=v; }
-  else { var ov=DB.overrides[m]=DB.overrides[m]||{}; ov[k]=v; }
+  else { var ov2=DB.overrides[m]=DB.overrides[m]||{}; ov2[k]=v; }
 }
+function normSpecKey2(k){ return String(k||"").trim().toLowerCase().replace(/[\s:：]+/g,""); }
 function batchDeleteSel(){
   var ms=selectedModels();
   if(!ms.length){ alert("请先勾选要删除的产品"); return; }
@@ -826,24 +831,33 @@ function batchDeleteSel(){
 function batchEditFields(){
   var ms=selectedModels();
   if(!ms.length){ alert("请先勾选要修改的产品"); return; }
-  var h='<h3>批量修改参数 · 已选 '+ms.length+' 个产品</h3>'
-   +'<div class="hint" style="margin-bottom:6px">只填写需要修改的字段，留空的字段保持原样不动。</div><div class="fgrid">';
+  var h='<h3>批量修改 / 删除参数 · 已选 '+ms.length+' 个产品</h3>'
+   +'<div class="hint" style="margin-bottom:6px">修改：只填写需要修改的字段，留空保持原样。删除：在下方勾选要删除（清空）的字段。两者可同时使用。</div><div class="fgrid">';
   BATCH_FIELDS.forEach(function(f){
     h+='<label>'+esc(f[1])+'<input id="bf_'+f[0]+'"></label>';
+  });
+  h+='</div>'
+   +'<div style="margin:10px 0 4px"><b>删除字段</b> <span class="hint">（勾选=把所选产品的这个字段清空）</span></div><div class="fgrid">';
+  BATCH_FIELDS.forEach(function(f){
+    h+='<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" class="bfClr" value="'+f[0]+'">'+esc(f[1])+'</label>';
   });
   h+='</div><div class="bar" style="margin-top:10px"><button class="btn" id="bfSave">应用到所选 '+ms.length+' 个产品</button><button class="btn ghost" id="bfCancel">取消</button></div>';
   openModal(h);
   $("bfCancel").onclick=closeModal;
   $("bfSave").onclick=async function(){
-    var vals={};
+    var vals={},cls=[];
     BATCH_FIELDS.forEach(function(f){
       var k=f[0],v=$("bf_"+k).value.trim();
       if(v==="") return;
       if((k==="price_rmb"||k==="price_usd_exw"||k==="moq")&&!isNaN(Number(v))) v=Number(v);
       vals[k]=v;
     });
-    if(!Object.keys(vals).length){ alert("没有填写任何要修改的字段"); return; }
-    ms.forEach(function(m){ Object.keys(vals).forEach(function(k){ batchWriteField(m,k,vals[k]); }); });
+    document.querySelectorAll(".bfClr:checked").forEach(function(c){ cls.push(c.value); });
+    if(!Object.keys(vals).length&&!cls.length){ alert("没有填写要修改的字段，也没有勾选要删除的字段"); return; }
+    ms.forEach(function(m){
+      Object.keys(vals).forEach(function(k){ batchWriteField(m,k,vals[k]); });
+      cls.forEach(function(k){ batchWriteField(m,k,"__CLEAR__"); });
+    });
     try{ await saveDb(); closeModal(); badge("已批量修改 "+ms.length+" 个产品 ✓",true); showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
   };
 }
@@ -851,10 +865,10 @@ function batchSetSpec(){
   var ms=selectedModels();
   if(!ms.length){ alert("请先勾选要设定的产品"); return; }
   var h='<h3>批量设定规格参数 · 已选 '+ms.length+' 个产品</h3>'
-   +'<div class="bar" style="margin-bottom:4px"><select id="bsMode" style="max-width:380px"><option value="merge">追加/覆盖（同名参数以本次为准，其余参数保留）</option><option value="replace">完全替换（清空原有全部规格参数）</option></select></div>'
+   +'<div class="bar" style="margin-bottom:4px"><select id="bsMode" style="max-width:420px"><option value="merge">追加/覆盖（同名参数以本次为准，其余参数保留）</option><option value="replace">完全替换（清空原有全部规格参数）</option><option value="delete">删除指定参数（按参数名删除，参数值可不填）</option></select></div>'
    +'<div id="bsRows">'+specRowHtml("","")+'</div>'
    +'<button type="button" class="btn sm ghost" id="bsAdd" style="margin-top:6px">＋ 添加参数</button>'
-   +'<div class="hint" style="margin:8px 0">装箱数、内盒、外箱、净重、毛重等包装类参数会自动归入报价单的包装列，其余进规格列。</div>'
+   +'<div class="hint" style="margin:8px 0">追加/替换模式：装箱数、内盒、外箱、净重、毛重等包装类参数会自动归入报价单包装列，其余进规格列。删除模式：只填参数名（如「电机寿命」），从所选产品中删除该参数，可一次填多条。</div>'
    +'<div class="bar" style="margin-top:10px"><button class="btn" id="bsSave">应用到所选 '+ms.length+' 个产品</button><button class="btn ghost" id="bsCancel">取消</button></div>';
   openModal(h);
   $("bsCancel").onclick=closeModal;
@@ -868,7 +882,16 @@ function batchSetSpec(){
       if(k||v) lines.push([k,v]);
     });
     if(!lines.length){ alert("请至少填写一条参数"); return; }
-    ms.forEach(function(m){
+    if(mode==="delete"){
+      var del={};
+      lines.forEach(function(r){ if(r[0]) del[normSpecKey2(r[0])]=1; });
+      if(!Object.keys(del).length){ alert("删除模式：请填写要删除的参数名（参数值可不填）"); return; }
+      ms.forEach(function(m){
+        var p=effProduct(m)||{};
+        var out=parseSpecLines(p.spec_text).filter(function(r){ if(!r[0]) return true; return !del[normSpecKey2(r[0])]; }).map(function(r){ return r[0]? r[0]+": "+r[1] : r[1]; });
+        batchWriteField(m,"spec_text",out.join("\n"));
+      });
+    } else ms.forEach(function(m){
       var p=effProduct(m)||{}, out=[];
       if(mode==="merge"){
         var map={},order=[];
