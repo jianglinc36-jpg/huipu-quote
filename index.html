@@ -5107,7 +5107,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=107').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=108').catch(function(e){ /* offline not critical */ });
     });
   }
 
