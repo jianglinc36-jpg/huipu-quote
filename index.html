@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v95（1113 Supabase 凭据已接入·员工实时同步·永久网址）</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v96（登录默认邮箱验证码·手机短信暂不可用）</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -712,10 +712,10 @@
     <h3>登录 / 注册（开启多端同步）</h3>
     <p class="hint">登录后，客户信息、报价清单、资料库参数会自动同步到云端，手机和电脑随时互通。未登录时数据只存在本机浏览器。</p>
     <div class="tabs">
-      <button type="button" class="tab on" id="tabPhone">手机号</button>
-      <button type="button" class="tab" id="tabEmail">邮箱</button>
+      <button type="button" class="tab" id="tabPhone">手机号</button>
+      <button type="button" class="tab on" id="tabEmail">邮箱</button>
     </div>
-    <div class="tabpane" id="panePhone">
+    <div class="tabpane" id="panePhone" style="display:none">
       <input id="phone" inputmode="numeric" placeholder="手机号（11 位，如 138 开头）">
       <div class="err" id="phoneErr"></div>
       <div class="row">
@@ -724,7 +724,7 @@
       </div>
       <button type="button" class="btn" id="phoneLogin">登录 / 注册</button>
     </div>
-    <div class="tabpane" id="paneEmail" style="display:none">
+    <div class="tabpane" id="paneEmail">
       <input id="email" placeholder="邮箱">
       <input id="emailPwd" type="password" placeholder="密码（新账号注册需填）">
       <div class="row">
@@ -5122,7 +5122,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=101').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=102').catch(function(e){ /* offline not critical */ });
     });
   }
 
