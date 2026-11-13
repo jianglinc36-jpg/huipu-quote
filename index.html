@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v93（1112 新增「安装到电脑/手机」入口·联网云同步·电脑手机版独立 App）</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v94（1113 后端改为独立 Supabase·永久托管可登录同步·主程序+后台同改造）</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -704,7 +704,7 @@
 <script src="vendor/mammoth.browser.min.js"></script>
 <script src="vendor/html2canvas.min.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
+<script src="vendor/supabase.min.js"></script>
 
 <!-- ============ Cloud sync: login modal ============ -->
 <div id="loginModal" class="modal-mask" style="display:none">
@@ -1347,13 +1347,44 @@ function restore(){
 }
 
 /* ---------- cloud sync + workspace / employee permissions ---------- */
-const CLOUD_CFG = {
-  endpoint: "https://huipu-quotation.app.workbuddy.host",
-  oauthRelayBaseUrl: "https://www.workbuddy.cn/v2/as/genie-baas/oauth",
-  publishableKey: "wbpk_V3lKoRdQTWz4Gjp1BrTOjW_4LzD83pfAgIBCrfnueoCOHyVxBbaOEL2"
-};
+/* ===== 独立 Supabase 云端（替代 WorkBuddy 平台云端；可在任意域名/永久托管下登录并实时同步）=====
+   配置：把下面 SUPABASE_URL / SUPABASE_ANON 换成你自己的 Supabase 项目即可。 */
+const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
+const SUPABASE_ANON = "YOUR-ANON-KEY";
 let cloud = null;
-try { if (typeof WorkBuddyCloud !== "undefined") cloud = WorkBuddyCloud.createWorkBuddyCloud(CLOUD_CFG); } catch(e){ console.warn("cloud init skipped", e); }
+try {
+  if (typeof supabase !== "undefined" && supabase.createClient && SUPABASE_URL.indexOf("YOUR-PROJECT")<0 && SUPABASE_ANON.indexOf("YOUR-ANON")<0) {
+    const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    });
+    function _normPhone(p){ if(!p) return p; p = String(p).replace(/\s/g,""); if(/^1\d{10}$/.test(p)) p = "+86"+p; return p; }
+    cloud = {
+      _sb: _sb,
+      auth: {
+        getSession: async () => { const { data } = await _sb.auth.getSession(); return { data: (data && data.session) ? data.session : null }; },
+        signInWithPassword: (o) => _sb.auth.signInWithPassword(o),
+        signInWithOAuth: (o) => { const opt = Object.assign({}, o); opt.options = Object.assign({ redirectTo: location.origin + location.pathname }, opt.options || {}); return _sb.auth.signInWithOAuth(opt); },
+        signOut: () => _sb.auth.signOut(),
+        sendOtp: (o) => {
+          const p = Object.assign({}, o);
+          if (p.phone) { p.phone = _normPhone(p.phone); return _sb.auth.signInWithOtp({ phone: p.phone }); }
+          if (p.email) { return _sb.auth.signInWithOtp({ email: p.email }); }
+          return Promise.resolve({ error: { message: "请提供手机号或邮箱" } });
+        },
+        verifyOtp: (o) => {
+          const p = Object.assign({}, o);
+          delete p.verificationId; delete p.isExistingUser; delete p.password;
+          if (p.phone) { p.phone = _normPhone(p.phone); p.type = "sms"; }
+          else if (p.email) { p.type = "email"; }
+          return _sb.auth.verifyOtp(p);
+        },
+        handleWechatWebCallback: async () => ({ data: null, error: null }),
+        onAuthStateChange: (cb) => _sb.auth.onAuthStateChange(cb)
+      },
+      database: _sb
+    };
+  }
+} catch(e){ console.warn("supabase init skipped", e); }
 function cloudReady(){ return !!cloud; }
 function escHtml(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
 function syncBadge(msg){ const el=document.getElementById("syncStat"); if(el) el.textContent=msg||""; }
@@ -5091,7 +5122,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=99').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=100').catch(function(e){ /* offline not critical */ });
     });
   }
 
