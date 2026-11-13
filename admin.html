@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=104').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=105').catch(function () {});
     });
   }
 </script>
@@ -587,21 +587,69 @@ async function renderCusts(M){
 }
 
 /* ---------- 成员 ---------- */
+function _genToken(){ return "hv"+Date.now().toString(36)+Math.random().toString(36).slice(2,10); }
+var _addMemBusy=false;
+async function addMemberInvite(){
+  if(_addMemBusy) return; _addMemBusy=true;
+  var name=($("mName").value||"").trim();
+  var phone=($("mPhone").value||"").replace(/\D/g,"");
+  var role=$("mRole").value;
+  var box=$("mInviteBox");
+  box.style.display="none";
+  if(!phone){ _addMemBusy=false; alert("请填写员工手机号（加入时凭它匹配）"); return; }
+  if(!/^1\d{10}$/.test(phone)){ _addMemBusy=false; alert("请输入正确的 11 位手机号"); return; }
+  var perms=role==="viewer"?{view:true,edit:false,export:true,manageDb:false,manageMembers:false}:{view:true,edit:true,export:true,manageDb:false,manageMembers:false};
+  if(name) perms.name=name;
+  perms.phone=phone;
+  var r=await cloud.database.from("quotation_invites").insert({ token:_genToken(), workspace_id:WS_ID, role:role, perms:perms, created_by:ME.uid||WS_ID, status:"open" });
+  _addMemBusy=false;
+  if(r.error){ alert("添加失败："+(r.error.message||r.error)); return; }
+  $("mName").value=""; $("mPhone").value="";
+  box.style.display=""; box.innerHTML='✅ 已添加员工'+(name?('「<b>'+esc(name)+'</b>」'):'')+'（'+phone.slice(0,3)+'****'+phone.slice(7)+'）。<br>员工用<b>邮箱验证码</b>登录报价软件后，在锁定页输入该手机号点「加入」即自动进工作区，无需链接。';
+  badge("成员已添加 ✓",true);
+  showTab("members");
+}
+async function delInvite(id){
+  if(!confirm("删除该待加入记录？")) return;
+  var r=await cloud.database.from("quotation_invites").delete().eq("id",id);
+  if(r.error) alert("失败："+(r.error.message||r.error)); else { badge("已删除",true); showTab("members"); }
+}
 async function renderMembers(M){
-  var rows; try{ var r=await withTimeout(cloud.database.from("quotation_members").select("id,user_id,role,perms,status,joined_at").eq("workspace_id",WS_ID),15000); rows=r.data||[]; }
+  var rows, invs;
+  try{ var r=await withTimeout(cloud.database.from("quotation_members").select("id,user_id,role,perms,status,joined_at").eq("workspace_id",WS_ID),15000); rows=r.data||[]; }
   catch(e){ M.innerHTML='<div class="err">加载失败：'+esc(e.message||e)+'</div>'; return; }
-  var h='<div class="card"><h3>👥 工作区成员（'+rows.length+'）</h3><div class="tblwrap"><table><thead><tr><th class="l">用户 ID</th><th>角色</th><th>状态</th><th>加入时间</th><th>操作</th></tr></thead><tbody>';
+  try{ var r2=await withTimeout(cloud.database.from("quotation_invites").select("id,token,role,perms,status,created_at").eq("workspace_id",WS_ID).eq("status","open").order("created_at",{ascending:false}),15000); invs=r2.data||[]; }
+  catch(e){ invs=[]; }
+  var h='<div class="card"><h3>➕ 添加成员</h3><div class="bar">'
+    +'<input id="mName" placeholder="员工姓名（选填）" style="width:180px">'
+    +'<input id="mPhone" placeholder="手机号（必填，11位）" style="width:200px" maxlength="11">'
+    +'<select id="mRole"><option value="editor">报价员（可编辑/导出）</option><option value="viewer">只读</option></select>'
+    +'<button class="btn sm" id="mAdd">＋ 添加成员</button>'
+    +'</div><div id="mInviteBox" class="hint" style="display:none;margin-top:10px;padding:10px;background:#f0f7ff;border-radius:8px;line-height:1.7"></div>'
+    +'<div class="hint" style="margin-top:8px">员工加入方式：用<b>邮箱验证码</b>登录报价软件 → 在锁定页输入上面填的手机号 → 点「加入」（凭手机号自动匹配）。</div></div>';
+  if(invs.length){
+    h+='<div class="card"><h3>⏳ 待加入名单（'+invs.length+'）</h3><div class="tblwrap"><table><thead><tr><th class="l">姓名</th><th class="l">手机号</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead><tbody>';
+    invs.forEach(function(x){
+      var p=x.perms||{};
+      h+='<tr><td class="l">'+esc(p.name||"—")+'</td><td class="l">'+esc(p.phone?String(p.phone).slice(0,3)+"****"+String(p.phone).slice(7):"—")+'</td><td>'+(x.role==="viewer"?"只读":"报价员")+'</td><td>'+fmtDT(x.created_at)+'</td><td><button class="btn sm danger" data-invd="'+x.id+'">删除</button></td></tr>';
+    });
+    h+='</tbody></table></div></div>';
+  }
+  var h2='<div class="card"><h3>👥 工作区成员（'+rows.length+'）</h3><div class="tblwrap"><table><thead><tr><th class="l">用户 ID</th><th class="l">姓名</th><th>角色</th><th>状态</th><th>加入时间</th><th>操作</th></tr></thead><tbody>';
   rows.forEach(function(x){
     var role=x.role==="owner"?"所有者":(x.role==="viewer"?"只读":"报价员");
-    h+='<tr><td class="l">'+esc(String(x.user_id||"").slice(0,8))+'…</td><td>'+role+'</td><td>'+esc(x.status||"")+'</td><td>'+fmtDT(x.joined_at)+'</td><td style="white-space:nowrap">';
+    var nm=(x.perms&&x.perms.name)||"—";
+    h2+='<tr><td class="l">'+esc(String(x.user_id||"").slice(0,8))+'…</td><td class="l">'+esc(nm)+'</td><td>'+role+'</td><td>'+esc(x.status||"")+'</td><td>'+fmtDT(x.joined_at)+'</td><td style="white-space:nowrap">';
     if(x.role!=="owner"){
-      h+='<button class="btn sm ghost" data-role="'+x.id+'" data-to="'+(x.role==="viewer"?"editor":"viewer")+'">改为'+(x.role==="viewer"?"报价员":"只读")+'</button> '
+      h2+='<button class="btn sm ghost" data-role="'+x.id+'" data-to="'+(x.role==="viewer"?"editor":"viewer")+'">改为'+(x.role==="viewer"?"报价员":"只读")+'</button> '
        +'<button class="btn sm danger" data-rm="'+x.id+'">移除</button>';
-    } else h+='<span class="hint">主账号</span>';
-    h+='</td></tr>';
+    } else h2+='<span class="hint">主账号</span>';
+    h2+='</td></tr>';
   });
-  h+='</tbody></table></div><div class="hint" style="margin-top:8px">新成员加入请使用报价软件里的「邀请成员」生成邀请链接。</div></div>';
-  M.innerHTML=h;
+  h2+='</tbody></table></div></div>';
+  M.innerHTML=h+h2;
+  var add=$("mAdd"); if(add) add.onclick=addMemberInvite;
+  M.querySelectorAll("[data-invd]").forEach(function(b){ b.onclick=function(){ delInvite(b.dataset.invd); };});
   M.querySelectorAll("[data-role]").forEach(function(b){ b.onclick=async function(){
     var r=await cloud.database.from("quotation_members").update({role:b.dataset.to,perms:b.dataset.to==="viewer"?{view:true,edit:false,export:false,manageDb:false,manageMembers:false}:{view:true,edit:true,export:true,manageDb:true,manageMembers:false}}).eq("id",b.dataset.role);
     if(r.error) alert("失败："+(r.error.message||r.error)); else { badge("已更新 ✓",true); showTab("members"); }
