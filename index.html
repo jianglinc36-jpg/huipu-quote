@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v112</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v113</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -887,14 +887,14 @@ function effProduct(model){
   else base=cus||builtin;
   if(!base) return null;
   const m=Object.assign({},base);
-  if(builtin){
-    ["price_rmb","price_usd_exw","ref_prices","moq","packing","power","voltage","windspeed","gears","material","net_weight","gross_weight","inner_box","outer_box","prod_size","spec_text","category","brand"]
-      .forEach(k=>{ if((m[k]===undefined||m[k]===null||m[k]==="") && builtin[k]!==undefined && builtin[k]!=="") m[k]=builtin[k]; });
-  }
-  // 报价表抓到的价格/箱规叠加在最上层
+  const OVK=["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","prod_size","power","voltage","windspeed","gears","material","category","brand","spec_text"];
+  // 后台资料库改动叠加在最上层（__CLEAR__=后台批量清空该字段，阻止内置库回填）
   const ov=DB.overrides[model]||{};
-  ["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","prod_size","power","voltage","windspeed","gears","material","category","brand","spec_text"]
-    .forEach(k=>{ if(ov[k]!==undefined && ov[k]!=="") m[k]=ov[k]; });
+  if(builtin){
+    ["ref_prices"].concat(OVK)
+      .forEach(k=>{ if(ov[k]!==undefined) return; if((m[k]===undefined||m[k]===null||m[k]==="") && builtin[k]!==undefined && builtin[k]!=="") m[k]=builtin[k]; });
+  }
+  OVK.forEach(k=>{ if(ov[k]===undefined||ov[k]===null) return; m[k]= (ov[k]==="__CLEAR__")? "" : ov[k]; });
   return m;
 }
 // 关键：必须返回「资料库合并后」的产品（内置 + custom/overrides 覆盖），
@@ -5084,7 +5084,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=112').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=113').catch(function(e){ /* offline not critical */ });
     });
   }
 
