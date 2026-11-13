@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=114').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=115').catch(function () {});
     });
   }
 </script>
@@ -693,6 +693,7 @@ function renderDb(M){
     +'<button class="btn sm ghost" id="dbBatchDel">批量删除</button>'
     +'<button class="btn sm ghost" id="dbBatchEdit">批量修改参数</button>'
     +'<button class="btn sm ghost" id="dbBatchSpec">批量设定规格参数</button>'
+    +'<button class="btn sm" id="dbTpl">固定参数模板</button>'
     +'<span class="hint">内置 '+PRODUCTS.length+' · 自定义 '+customs.length+' · 有覆盖 '+ovs.length+'</span>'
     +'<span style="flex:1"></span><span class="hint">先勾选产品，再用上面的批量按钮 · 改动保存后员工端打开报价软件即自动同步</span></div>';
   if(hiddenCnt) h+='<div class="hint" style="margin-top:6px">已隐藏 '+hiddenCnt+' 个内置产品（批量删除所致，仍在报价软件历史报价中可用） <button class="btn sm ghost" id="dbUnhide">还原全部隐藏</button></div>';
@@ -717,6 +718,7 @@ function renderDb(M){
   $("dbBatchDel").onclick=batchDeleteSel;
   $("dbBatchEdit").onclick=batchEditFields;
   $("dbBatchSpec").onclick=batchSetSpec;
+  $("dbTpl").onclick=openTemplate;
   var uh=$("dbUnhide"); if(uh) uh.onclick=async function(){ Object.keys(DB.overrides).forEach(function(m){ if(DB.overrides[m]&&DB.overrides[m]._hidden) delete DB.overrides[m]._hidden; }); try{ await saveDb(); showTab("db"); }catch(e){ alert(e.message||e); } };
   M.querySelectorAll("[data-e]").forEach(function(b){ b.onclick=function(){ editProduct(b.dataset.e,false); }; });
   M.querySelectorAll("[data-img]").forEach(function(b){ b.onclick=function(){ editProductImg(b.dataset.img); }; });
@@ -732,6 +734,14 @@ var PF_SAVE=PROD_FIELDS.concat([["spec_text","规格参数"]]);
 var BATCH_FIELDS=PROD_FIELDS.filter(function(f){ return f[0]!=="model"; });
 function editProduct(m,isNew){
   var p=isNew?{}:(effProduct(m)||{});
+  if(isNew){
+    // 固定参数模板：新增产品自动带入模板里的固定值与固定规格参数
+    var tpl=(SYS.settings&&SYS.settings.dbTemplate)||{};
+    p=Object.assign({},tpl.fields||{},p);
+    if(!p.spec_text && tpl.spec && tpl.spec.length){
+      p.spec_text=tpl.spec.map(function(r){ return r[0]? r[0]+": "+r[1] : r[1]; }).join("\n");
+    }
+  }
   var base=isNew?null:PROD_MAP[m];
   var h='<h3>'+(isNew?"＋ 新增产品":"编辑产品 · "+esc(m))+'</h3><div class="fgrid">';
   PROD_FIELDS.forEach(function(f){
@@ -814,6 +824,66 @@ function batchWriteField(m,k,v){
   else { var ov2=DB.overrides[m]=DB.overrides[m]||{}; ov2[k]=v; }
 }
 function normSpecKey2(k){ return String(k||"").trim().toLowerCase().replace(/[\s:：]+/g,""); }
+/* ---------- 固定参数模板 ---------- */
+function readTplInputs(){
+  var fields={},spec=[];
+  BATCH_FIELDS.forEach(function(f){
+    var v=$("tp_"+f[0]).value.trim();
+    if(v==="") return;
+    if((f[0]==="price_rmb"||f[0]==="price_usd_exw"||f[0]==="moq")&&!isNaN(Number(v))) v=Number(v);
+    fields[f[0]]=v;
+  });
+  document.querySelectorAll("#tpSpecRows .specRow").forEach(function(r){
+    var k=r.querySelector(".spk").value.trim(), v=r.querySelector(".spv").value.trim();
+    if(k||v) spec.push([k,v]);
+  });
+  return {fields:fields,spec:spec};
+}
+function openTemplate(){
+  var t=(SYS.settings&&SYS.settings.dbTemplate)||{};
+  var tf=t.fields||{}, ts=t.spec||[];
+  var h='<h3>固定参数模板</h3>'
+   +'<div class="hint" style="margin-bottom:6px">设定一套固定参数：①保存后，新增产品自动带入这些值；②先在资料库列表勾选产品，再点「应用到勾选产品」一键套用。留空的字段不作为固定值。</div><div class="fgrid">';
+  BATCH_FIELDS.forEach(function(f){
+    h+='<label>'+esc(f[1])+'<input id="tp_'+f[0]+'" value="'+esc(tf[f[0]]!=null?tf[f[0]]:"")+'"></label>';
+  });
+  h+='</div>'
+   +'<div style="margin:10px 0 4px"><b>固定规格参数</b> <span class="hint">（每行一条，可添加/删除）</span></div>'
+   +'<div id="tpSpecRows">'+(ts.length?ts.map(function(r){ return specRowHtml(r[0],r[1]); }).join(""):"")+'</div>'
+   +'<button type="button" class="btn sm ghost" id="tpAdd" style="margin-top:6px">＋ 添加参数</button>'
+   +'<div class="bar" style="margin-top:10px"><button class="btn" id="tpSave">保存模板</button><button class="btn" id="tpApply">应用到勾选产品</button><button class="btn ghost" id="tpCancel">关闭</button></div>'
+   +'<div class="hint" style="margin-top:6px">「应用到勾选产品」规则：字段=模板非空项覆盖；规格参数=同名参数以模板为准、其余保留。</div>';
+  openModal(h);
+  $("tpCancel").onclick=closeModal;
+  bindSpecEditor("tpSpecRows","tpAdd");
+  $("tpSave").onclick=async function(){
+    var t2=readTplInputs();
+    SYS.settings=SYS.settings||{};
+    SYS.settings.dbTemplate=t2;
+    try{ await saveSys(); closeModal(); badge("固定参数模板已保存 ✓（新增产品自动带入）",true); }catch(e){ alert("保存失败："+(e.message||e)); }
+  };
+  $("tpApply").onclick=async function(){
+    var ms=selectedModels();
+    if(!ms.length){ alert("请先在资料库列表勾选要应用的产品，再打开本模板点「应用到勾选产品」"); return; }
+    var t2=readTplInputs();
+    if(!Object.keys(t2.fields).length&&!t2.spec.length){ alert("模板为空，没有可应用的内容"); return; }
+    if(!confirm("把模板参数应用到勾选的 "+ms.length+" 个产品？\n字段=非空项覆盖；规格参数=同名以模板为准、其余保留。")) return;
+    ms.forEach(function(m){
+      Object.keys(t2.fields).forEach(function(k){ batchWriteField(m,k,t2.fields[k]); });
+      if(t2.spec.length){
+        var p=effProduct(m)||{}, map={}, order=[], out=[];
+        parseSpecLines(p.spec_text).forEach(function(r){
+          if(r[0]){ if(!(r[0] in map)) order.push(r[0]); map[r[0]]=r[1]; }
+          else out.push(r[1]);
+        });
+        t2.spec.forEach(function(r){ if(!(r[0] in map)) order.push(r[0]); map[r[0]]=r[1]; });
+        order.forEach(function(k){ out.push(k+": "+map[k]); });
+        batchWriteField(m,"spec_text",out.join("\n"));
+      }
+    });
+    try{ await saveDb(); closeModal(); badge("模板已应用到 "+ms.length+" 个产品 ✓",true); showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
+  };
+}
 function batchDeleteSel(){
   var ms=selectedModels();
   if(!ms.length){ alert("请先勾选要删除的产品"); return; }
