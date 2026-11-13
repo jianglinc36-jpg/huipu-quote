@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v97（仅邮箱登录·管理员账号已开通）</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v98（后台资料库：分类筛选/改名·批量添加产品·排序）</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -897,7 +897,7 @@ function effProduct(model){
   }
   // 报价表抓到的价格/箱规叠加在最上层
   const ov=DB.overrides[model]||{};
-  ["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box"]
+  ["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","category"]
     .forEach(k=>{ if(ov[k]!==undefined && ov[k]!=="") m[k]=ov[k]; });
   return m;
 }
@@ -5107,7 +5107,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=103').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=107').catch(function(e){ /* offline not critical */ });
     });
   }
 
