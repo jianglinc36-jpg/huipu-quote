@@ -713,16 +713,12 @@
     <p class="hint">登录后，客户信息、报价清单、资料库参数会自动同步到云端，手机和电脑随时互通。未登录时数据只存在本机浏览器。</p>
     <div class="tabpane" id="paneEmail">
       <input id="email" placeholder="邮箱">
-      <input id="emailPwd" type="password" placeholder="密码（新账号注册需填）">
-      <div class="row">
-        <input id="emailCode" inputmode="numeric" maxlength="6" placeholder="邮箱验证码">
-        <button type="button" class="btn sm" id="emailSend">获取验证码</button>
-      </div>
+      <input id="emailPwd" type="password" placeholder="密码">
       <div class="err" id="emailErr"></div>
       <div class="actions">
-        <button type="button" class="btn" id="emailOtpLogin">验证码登录/注册</button>
-        <button type="button" class="btn ghost" id="emailPwdLogin">密码登录</button>
+        <button type="button" class="btn" id="emailPwdLogin">密码登录</button>
       </div>
+      <p class="hint" style="margin-top:8px">账号和密码由管理员统一发放；如无账号，请联系管理员开通。</p>
     </div>
     <div class="err" id="loginErr"></div>
     <button type="button" class="link" id="loginClose">关闭</button>
@@ -897,7 +893,7 @@ function effProduct(model){
   }
   // 报价表抓到的价格/箱规叠加在最上层
   const ov=DB.overrides[model]||{};
-  ["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","category"]
+  ["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box"]
     .forEach(k=>{ if(ov[k]!==undefined && ov[k]!=="") m[k]=ov[k]; });
   return m;
 }
@@ -1767,30 +1763,6 @@ function wireLogin(){
     pendingPhone=null;
     try{ localStorage.setItem("huipu_my_phone", usedPhone); }catch(e){}
     onAuthOK(usedPhone);
-  };
-  const emailSend=document.getElementById("emailSend");
-  if(emailSend) emailSend.onclick=async function(){
-    const email=document.getElementById("email").value.trim(); const err=document.getElementById("emailErr"); err.textContent="";
-    if(!email){ err.textContent="请输入邮箱"; return; }
-    emailSend.disabled=true; emailSend.textContent="发送中…";
-    const r=await cloud.auth.sendOtp({ email });
-    if(r.error){ err.textContent=r.error.message||"发送失败，请重试"; emailSend.disabled=false; emailSend.textContent="获取验证码"; return; }
-    pendingEmail={ email:email, verificationId:r.data&&r.data.verificationId, isExistingUser:r.data&&r.data.isExistingUser };
-    emailSend.textContent="已发送"; setTimeout(function(){ emailSend.disabled=false; emailSend.textContent="重新获取"; }, 60000);
-  };
-  const emailOtpLogin=document.getElementById("emailOtpLogin");
-  if(emailOtpLogin) emailOtpLogin.onclick=async function(){
-    if(!pendingEmail){ document.getElementById("emailErr").textContent="请先获取验证码"; return; }
-    const code=document.getElementById("emailCode").value.trim();
-    if(!code){ document.getElementById("emailErr").textContent="请输入验证码"; return; }
-    const pwd=document.getElementById("emailPwd").value;
-    const r=await cloud.auth.verifyOtp({ email:pendingEmail.email, verificationId:pendingEmail.verificationId, isExistingUser:pendingEmail.isExistingUser, token:code, password: pendingEmail.isExistingUser?undefined:pwd });
-    if(r.error){
-      const m=(r.error.message||"")+" "+(r.error.details||"");
-      document.getElementById("emailErr").textContent = /does not match|invalid|expired/i.test(m) ? "验证码不正确或已过期，请点击「重新获取」后输入最新收到的验证码" : (r.error.message||"验证失败");
-      return;
-    }
-    pendingEmail=null; onAuthOK();
   };
   const emailPwdLogin=document.getElementById("emailPwdLogin");
   if(emailPwdLogin) emailPwdLogin.onclick=async function(){
@@ -5107,7 +5079,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=108').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=109').catch(function(e){ /* offline not critical */ });
     });
   }
 
