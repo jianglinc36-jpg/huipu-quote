@@ -164,8 +164,8 @@ var OWNER_PHONE = "15967448116";
 var DB_KEY = "huipu_db_v1", DBIMG_KEY = "huipu_dbimg_v1", SYS_KEY = "huipu_sys_v1";
 /* ===== 独立 Supabase 云端（替代 WorkBuddy 平台云端；可在任意域名/永久托管下登录并实时同步）=====
    配置：把下面 SUPABASE_URL / SUPABASE_ANON 换成你自己的 Supabase 项目即可。 */
-var SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-var SUPABASE_ANON = "YOUR-ANON-KEY";
+var SUPABASE_URL = "https://viocphguqimuiobehbqg.supabase.co";
+var SUPABASE_ANON = "sb_publishable_mAgzX2kueXw2GHr-tdSJuA_SD360gRq";
 var cloud = null;
 try {
   if (typeof supabase !== "undefined" && supabase.createClient && SUPABASE_URL.indexOf("YOUR-PROJECT")<0 && SUPABASE_ANON.indexOf("YOUR-ANON")<0) {
