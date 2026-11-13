@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=103').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=104').catch(function () {});
     });
   }
 </script>
@@ -154,7 +154,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 <script src="vendor/supabase.min.js"></script>
 <script>
 /* ================= 基础 ================= */
-var APP_URL = location.origin + "/index.html";
+var APP_URL = location.origin + location.pathname.replace(/admin\.html.*$/,"");
 var WS_ID = "WS_HUIPU";
 var OWNER_PHONE = "15967448116";
 var DB_KEY = "huipu_db_v1", DBIMG_KEY = "huipu_dbimg_v1", SYS_KEY = "huipu_sys_v1";
