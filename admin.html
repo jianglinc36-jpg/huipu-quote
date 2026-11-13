@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=105').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=106').catch(function () {});
     });
   }
 </script>
@@ -593,21 +593,50 @@ async function addMemberInvite(){
   if(_addMemBusy) return; _addMemBusy=true;
   var name=($("mName").value||"").trim();
   var phone=($("mPhone").value||"").replace(/\D/g,"");
+  var email=($("mEmail").value||"").trim().toLowerCase();
+  var pwd=($("mPwd").value||"");
   var role=$("mRole").value;
   var box=$("mInviteBox");
   box.style.display="none";
-  if(!phone){ _addMemBusy=false; alert("请填写员工手机号（加入时凭它匹配）"); return; }
-  if(!/^1\d{10}$/.test(phone)){ _addMemBusy=false; alert("请输入正确的 11 位手机号"); return; }
   var perms=role==="viewer"?{view:true,edit:false,export:true,manageDb:false,manageMembers:false}:{view:true,edit:true,export:true,manageDb:false,manageMembers:false};
   if(name) perms.name=name;
-  perms.phone=phone;
-  var r=await cloud.database.from("quotation_invites").insert({ token:_genToken(), workspace_id:WS_ID, role:role, perms:perms, created_by:ME.uid||WS_ID, status:"open" });
+  perms.phone=phone||"";
+  try{
+    /* 方式一：直接创建员工账号（邮箱+密码），员工拿到即可登录 */
+    if(email||pwd){
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ _addMemBusy=false; alert("请填写正确的员工邮箱"); return; }
+      if(pwd.length<6){ _addMemBusy=false; alert("员工密码至少 6 位"); return; }
+      // 保护管理员自身登录态：先记下当前会话，signUp 后恢复
+      var s0=null; try{ var _g=await cloud._sb.auth.getSession(); s0=_g&&_g.data&&_g.data.session; }catch(e){}
+      var su=await cloud._sb.auth.signUp({ email: email, password: pwd });
+      if(su.error){
+        _addMemBusy=false;
+        var msg=su.error.message||String(su.error);
+        alert("创建账号失败："+msg+(msg.indexOf("already registered")>=0?"\n该邮箱已注册过，如需直接加入，请让员工用「邮箱验证码」登录后凭手机号加入，或换一个邮箱。":""));
+        return;
+      }
+      var uid=(su.data&&su.data.user)?su.data.user.id:null;
+      if(!uid){ _addMemBusy=false; alert("账号已提交但未返回用户 ID，请让员工先登录一次再由系统自动匹配。"); return; }
+      // signUp 会把浏览器会话切到新员工 —— 立即恢复管理员会话
+      if(s0 && su.data.session){ try{ await cloud._sb.auth.setSession({ access_token:s0.access_token, refresh_token:s0.refresh_token }); }catch(e){} }
+      var mr=await cloud.database.from("quotation_members").insert({ workspace_id:WS_ID, user_id:uid, role:role, perms:perms, status:"active", invited_by:(ME&&ME.uid)||"" });
+      if(mr.error){ _addMemBusy=false; alert("账号已创建，但加入工作区失败："+(mr.error.message||mr.error)+"\n可让员工登录后凭手机号加入。"); return; }
+      $("mName").value=""; $("mPhone").value=""; $("mEmail").value=""; $("mPwd").value="";
+      box.style.display="";
+      box.innerHTML='✅ 员工账号已创建并加入工作区：<b>'+esc(email)+'</b>（密码已设置'+(phone?('，手机号 '+phone.slice(0,3)+'****'+phone.slice(7)):'')+'）。<br>员工打开报价软件，直接用<b>邮箱 + 密码 → 点「密码登录」</b>即可使用，无需验证码。';
+      badge("员工账号已创建 ✓",true);
+      _addMemBusy=false; showTab("members"); return;
+    }
+    /* 方式二：仅手机号 → 员工自己用验证码注册后凭手机号加入 */
+    if(!phone){ _addMemBusy=false; alert("请填写「员工邮箱 + 密码」（你直接帮他建好账号），或仅填手机号让员工自己注册加入。"); return; }
+    if(!/^1\d{10}$/.test(phone)){ _addMemBusy=false; alert("请输入正确的 11 位手机号"); return; }
+    var r=await cloud.database.from("quotation_invites").insert({ token:_genToken(), workspace_id:WS_ID, role:role, perms:perms, created_by:(ME&&ME.uid)||WS_ID, status:"open" });
+    $("mName").value=""; $("mPhone").value="";
+    box.style.display=""; box.innerHTML='✅ 已添加员工'+(name?('「<b>'+esc(name)+'</b>」'):'')+'（'+phone.slice(0,3)+'****'+phone.slice(7)+'）。<br>员工用<b>邮箱验证码</b>登录报价软件后，在锁定页输入该手机号点「加入」即自动进工作区，无需链接。';
+    badge("成员已添加 ✓",true);
+    showTab("members");
+  }catch(e){ alert("操作失败："+(e.message||e)); }
   _addMemBusy=false;
-  if(r.error){ alert("添加失败："+(r.error.message||r.error)); return; }
-  $("mName").value=""; $("mPhone").value="";
-  box.style.display=""; box.innerHTML='✅ 已添加员工'+(name?('「<b>'+esc(name)+'</b>」'):'')+'（'+phone.slice(0,3)+'****'+phone.slice(7)+'）。<br>员工用<b>邮箱验证码</b>登录报价软件后，在锁定页输入该手机号点「加入」即自动进工作区，无需链接。';
-  badge("成员已添加 ✓",true);
-  showTab("members");
 }
 async function delInvite(id){
   if(!confirm("删除该待加入记录？")) return;
@@ -621,12 +650,14 @@ async function renderMembers(M){
   try{ var r2=await withTimeout(cloud.database.from("quotation_invites").select("id,token,role,perms,status,created_at").eq("workspace_id",WS_ID).eq("status","open").order("created_at",{ascending:false}),15000); invs=r2.data||[]; }
   catch(e){ invs=[]; }
   var h='<div class="card"><h3>➕ 添加成员</h3><div class="bar">'
-    +'<input id="mName" placeholder="员工姓名（选填）" style="width:180px">'
-    +'<input id="mPhone" placeholder="手机号（必填，11位）" style="width:200px" maxlength="11">'
+    +'<input id="mName" placeholder="员工姓名（选填）" style="width:150px">'
+    +'<input id="mPhone" placeholder="手机号（选填）" style="width:170px" maxlength="11">'
+    +'<input id="mEmail" placeholder="员工邮箱（用于登录）" style="width:220px">'
+    +'<input id="mPwd" type="text" placeholder="登录密码（≥6位，你自己定）" style="width:190px">'
     +'<select id="mRole"><option value="editor">报价员（可编辑/导出）</option><option value="viewer">只读</option></select>'
-    +'<button class="btn sm" id="mAdd">＋ 添加成员</button>'
+    +'<button class="btn sm" id="mAdd">＋ 创建账号并添加</button>'
     +'</div><div id="mInviteBox" class="hint" style="display:none;margin-top:10px;padding:10px;background:#f0f7ff;border-radius:8px;line-height:1.7"></div>'
-    +'<div class="hint" style="margin-top:8px">员工加入方式：用<b>邮箱验证码</b>登录报价软件 → 在锁定页输入上面填的手机号 → 点「加入」（凭手机号自动匹配）。</div></div>';
+    +'<div class="hint" style="margin-top:8px">推荐用法：填好<b>邮箱 + 密码</b>点「创建账号并添加」——系统直接帮员工建好账号并加入工作区，把邮箱密码发给员工，员工打开报价软件用<b>邮箱+密码登录</b>即可（无需验证码）。<br>也可以只填手机号：员工自己用邮箱验证码注册登录后，在锁定页输入手机号点「加入」自动匹配。</div></div>';
   if(invs.length){
     h+='<div class="card"><h3>⏳ 待加入名单（'+invs.length+'）</h3><div class="tblwrap"><table><thead><tr><th class="l">姓名</th><th class="l">手机号</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead><tbody>';
     invs.forEach(function(x){
