@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=109').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=110').catch(function () {});
     });
   }
 </script>
@@ -714,15 +714,14 @@ function renderDb(M){
     try{ await saveDb(); showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
   };});
 }
-var PROD_FIELDS=[["model","型号 *"],["category","类别"],["brand","品牌"],["power","功率"],["voltage","电压"],["frequency","频率"],["windspeed","风速"],["gears","档位"],["material","材质"],["packing","装箱量/包装"],["net_weight","净重"],["gross_weight","毛重"],["inner_box","内盒"],["outer_box","外箱"],["prod_size","产品尺寸"],["moq","起订量"],["price_rmb","底价 RMB"],["price_usd_exw","底价 USD"],["spec_text","规格参数（多行）"]];
+var PROD_FIELDS=[["model","型号 *"],["category","类别"],["brand","品牌"],["power","功率"],["voltage","电压"],["frequency","频率"],["windspeed","风速"],["gears","档位"],["material","材质"],["packing","装箱量/包装"],["net_weight","净重"],["gross_weight","毛重"],["inner_box","内盒"],["outer_box","外箱"],["prod_size","产品尺寸"],["moq","起订量"],["price_rmb","底价 RMB"],["price_usd_exw","底价 USD"]];
 function editProduct(m,isNew){
   var p=isNew?{}:(effProduct(m)||{});
   var base=isNew?null:PROD_MAP[m];
   var h='<h3>'+(isNew?"＋ 新增产品":"编辑产品 · "+esc(m))+'</h3><div class="fgrid">';
   PROD_FIELDS.forEach(function(f){
     var k=f[0],v=p[k]!=null?p[k]:"";
-    if(k==="spec_text") h+='<label style="grid-column:1/-1">'+esc(f[1])+'<textarea id="pf_'+k+'" rows="4">'+esc(v)+'</textarea></label>';
-    else if(k==="model") h+='<label>'+esc(f[1])+'<input id="pf_'+k+'" value="'+esc(v)+'"'+(isNew?"":" readonly")+'></label>';
+    if(k==="model") h+='<label>'+esc(f[1])+'<input id="pf_'+k+'" value="'+esc(v)+'"'+(isNew?"":" readonly")+'></label>';
     else h+='<label>'+esc(f[1])+'<input id="pf_'+k+'" value="'+esc(v)+'"></label>';
   });
   h+='</div><div class="hint" style="margin:8px 0">'+(isNew?"新字段将写入自定义产品库。":"仅保存与内置参数不同的字段，内置库更新时仍能自动带入。")+'</div>'
