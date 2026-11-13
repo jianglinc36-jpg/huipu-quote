@@ -155,20 +155,51 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 <div class="modal" id="modal"><div class="mbox" id="modalBox"></div></div>
 <div id="sysBadge"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
+<script src="vendor/supabase.min.js"></script>
 <script>
 /* ================= 基础 ================= */
 var APP_URL = location.origin + "/index.html";
 var WS_ID = "WS_HUIPU";
 var OWNER_PHONE = "15967448116";
 var DB_KEY = "huipu_db_v1", DBIMG_KEY = "huipu_dbimg_v1", SYS_KEY = "huipu_sys_v1";
-var CLOUD_CFG = {
-  endpoint: location.origin,
-  oauthRelayBaseUrl: "https://www.workbuddy.cn/v2/as/genie-baas/oauth",
-  publishableKey: "wbpk_V3lKoRdQTWz4Gjp1BrTOjW_4LzD83pfAgIBCrfnueoCOHyVxBbaOEL2"
-};
+/* ===== 独立 Supabase 云端（替代 WorkBuddy 平台云端；可在任意域名/永久托管下登录并实时同步）=====
+   配置：把下面 SUPABASE_URL / SUPABASE_ANON 换成你自己的 Supabase 项目即可。 */
+var SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
+var SUPABASE_ANON = "YOUR-ANON-KEY";
 var cloud = null;
-try{ if(typeof WorkBuddyCloud!=="undefined") cloud = WorkBuddyCloud.createWorkBuddyCloud(CLOUD_CFG); }catch(e){ console.warn("cloud init failed",e); }
+try {
+  if (typeof supabase !== "undefined" && supabase.createClient && SUPABASE_URL.indexOf("YOUR-PROJECT")<0 && SUPABASE_ANON.indexOf("YOUR-ANON")<0) {
+    var _sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    });
+    function _normPhone(p){ if(!p) return p; p = String(p).replace(/\s/g,""); if(/^1\d{10}$/.test(p)) p = "+86"+p; return p; }
+    cloud = {
+      _sb: _sb,
+      auth: {
+        getSession: async function(){ var d = await _sb.auth.getSession(); return { data: (d && d.data && d.data.session) ? d.data.session : null }; },
+        signInWithPassword: function(o){ return _sb.auth.signInWithPassword(o); },
+        signInWithOAuth: function(o){ var opt = Object.assign({}, o); opt.options = Object.assign({ redirectTo: location.origin + location.pathname }, opt.options || {}); return _sb.auth.signInWithOAuth(opt); },
+        signOut: function(){ return _sb.auth.signOut(); },
+        sendOtp: function(o){
+          var p = Object.assign({}, o);
+          if (p.phone) { p.phone = _normPhone(p.phone); return _sb.auth.signInWithOtp({ phone: p.phone }); }
+          if (p.email) { return _sb.auth.signInWithOtp({ email: p.email }); }
+          return Promise.resolve({ error: { message: "请提供手机号或邮箱" } });
+        },
+        verifyOtp: function(o){
+          var p = Object.assign({}, o);
+          delete p.verificationId; delete p.isExistingUser; delete p.password;
+          if (p.phone) { p.phone = _normPhone(p.phone); p.type = "sms"; }
+          else if (p.email) { p.type = "email"; }
+          return _sb.auth.verifyOtp(p);
+        },
+        handleWechatWebCallback: async function(){ return { data: null, error: null }; },
+        onAuthStateChange: function(cb){ return _sb.auth.onAuthStateChange(cb); }
+      },
+      database: _sb
+    };
+  }
+} catch(e){ console.warn("supabase init failed", e); }
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 function withTimeout(p,ms){ return Promise.race([Promise.resolve(p),new Promise(function(_,rej){ setTimeout(function(){ rej(new Error("请求超时，请重试")); },ms||15000); })]); }
