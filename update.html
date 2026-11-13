@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>报价软件 · 更新</title>
+</head>
+<body style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;text-align:center;padding-top:80px;color:#333">
+<div style="font-size:20px;font-weight:bold;margin-bottom:12px">慧普报价软件 · 缓存更新</div>
+<div id="s" style="color:#666">正在清除旧版本缓存，请稍候…</div>
+<div style="margin-top:24px;font-size:13px;color:#999">本页只需打开一次。完成后会自动进入最新版报价软件。</div>
+<script>
+(async function(){
+  const s=document.getElementById("s");
+  try{
+    if('serviceWorker' in navigator){
+      const rs=await navigator.serviceWorker.getRegistrations();
+      for(const r of rs){ try{ await r.unregister(); }catch(e){} }
+    }
+    if(window.caches){
+      const ks=await caches.keys();
+      for(const k of ks){ try{ await caches.delete(k); }catch(e){} }
+    }
+  }catch(e){}
+  s.textContent="已清除完成，正在打开最新版…";
+  setTimeout(function(){ location.replace("./?v="+Date.now()); }, 800);
+})();
+</script>
+</body>
+</html>
