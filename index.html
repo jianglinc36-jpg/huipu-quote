@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v113</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v114</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -1426,11 +1426,20 @@ const CLOUD_KEYS = [CUST_KEY, ITEMS_KEY, CFG_KEY, "huipu_terms_v1", DB_KEY, DBIM
 function gatherState(){
   const o={}; CLOUD_KEYS.forEach(k=>{ const v=localStorage.getItem(k); if(v!=null){ try{ o[k]=JSON.parse(v); }catch(e){} } }); return o;
 }
-function applyState(state){
+function applyState(state, withDb){
   if(!state||typeof state!=="object") return;
   // 卖方信息不随载入记录覆盖：每个人只管理自己的（即使管理员载入员工报价，也不改写本机卖方）
-  // 资料库（DB/DBIMG）同样不随载入旧报价单回退——旧快照里的资料库会把已更新的参数/图片覆盖回旧版！
-  CLOUD_KEYS.forEach(k=>{ if(k===SELLER_KEY||k===DB_KEY||k===DBIMG_KEY) return; if(k in state) saveJSON(k, state[k]); });
+  // 资料库（DB/DBIMG）默认不随载入旧报价单回退——旧快照里的资料库会把已更新的参数/图片覆盖回旧版！
+  // 但 pullCloud（云端实时状态拉取）传 withDb=true：此时资料库以云端为准（后台改动必须同步到软件端）
+  CLOUD_KEYS.forEach(k=>{ if(k===SELLER_KEY) return; if(!withDb&&(k===DB_KEY||k===DBIMG_KEY)) return; if(k in state) saveJSON(k, state[k]); });
+  // withDb：把云端资料库刷新进内存（DB 变量 + 图片通道），并落盘
+  if(withDb && (state[DB_KEY]||state[DBIMG_KEY])){
+    try{
+      DB = loadJSON(DB_KEY, DB) || DB;
+      mergeDbImages();
+      saveDB_noPush();
+    }catch(e){}
+  }
   // 源头防御：云端快照里的清单可能含空条目（null），会导致预览渲染整链报错
   try{ const arr=loadJSON(ITEMS_KEY,null); if(Array.isArray(arr)) saveJSON(ITEMS_KEY, arr.filter(Boolean)); }catch(e){}
   restore();
@@ -1509,7 +1518,7 @@ async function pullCloud(){
   const { data: session } = await cloud.auth.getSession(); if(!session) return false;
   const { data, error } = await cloud.database.from("quotation_state").select("data, updated_at").eq("workspace_id", WS_ID).maybeSingle();
   if(error){ console.warn("pull failed", error); return false; }
-  if(data && data.data){ applyState(data.data); syncBadge("已下载云端数据"+(data.updated_at?(" · "+String(data.updated_at).slice(0,16).replace("T"," ")):"")); return true; }
+  if(data && data.data){ applyState(data.data, true); syncBadge("已下载云端数据"+(data.updated_at?(" · "+String(data.updated_at).slice(0,16).replace("T"," ")):"")); return true; }
   return false;
 }
 /* 7天免登录：记录最后活跃时间，超 7 天未使用则强制重新登录 */
@@ -1672,7 +1681,7 @@ function renderAccount(){
       html+='<button type="button" class="btn sm ghost" id="logoutBtn">退出</button>';
       bar.innerHTML=html;
       bindOpenLogin();
-      const sn=document.getElementById("syncNow"); if(sn) sn.onclick=function(){ syncBadge("同步中…"); doPushCloud(); };
+      const sn=document.getElementById("syncNow"); if(sn) sn.onclick=async function(){ syncBadge("同步中…"); const ok=await pullCloud(); if(!ok) syncBadge("云端暂无新数据（或网络异常，稍后再试）"); };
       const mb=document.getElementById("manageBtn"); if(mb) mb.onclick=openManage;
       const lo=document.getElementById("logoutBtn"); if(lo) lo.onclick=async function(){ try{ await cloud.auth.signOut(); }catch(e){} location.reload(); };
     } else {
@@ -5084,7 +5093,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=113').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=114').catch(function(e){ /* offline not critical */ });
     });
   }
 
