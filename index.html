@@ -2831,24 +2831,30 @@ function tplCandMap(){
 function templateSpecRows(it){
   const t=tplDefault(); if(!t) return null;
   const p=(it&&it.model)? effProduct(it.model) : null;
-  const cur={}, db={};
+  const cur={}, db={}, exact={};
   ((it&&it.specRows)||[]).forEach(r=>{
     if(!r||!r[0]) return; const k=specGroupKey(r[0]); if(!k) return;
     const v=String(r[1]||"").trim(); if(v && !cur[k]) cur[k]=v;
   });
   if(p){
-    TPL_SPEC_ORDER.forEach(k=>{ const cn=TPL_FIELD_CN[k]; if(cn&&p[k]!=null&&String(p[k]).trim()) db[specGroupKey(cn)]=String(p[k]).trim(); });
+    TPL_SPEC_ORDER.forEach(k=>{
+      const cn=TPL_FIELD_CN[k]; if(!cn||p[k]==null||!String(p[k]).trim()) return;
+      db[specGroupKey(cn)]=String(p[k]).trim(); exact[specGroupKey(cn)+"|"+normSpecKey(cn)]=String(p[k]).trim();
+    });
     String(p.spec_text||"").split("\n").forEach(l=>{
       if(!l.trim()) return; const kv=parseLineKV(l); if(!kv||!kv[0]) return;
       if(typeof isPackKey==="function" && isPackKey(kv[0])) return;   // 装箱信息不进规格列
-      const k=specGroupKey(kv[0]); if(!k||db[k]) return;
-      const v=String(kv[1]||"").trim(); if(v) db[k]=v;
+      const k=specGroupKey(kv[0]); if(!k) return;
+      const v=String(kv[1]||"").trim(); if(!v) return;
+      if(!db[k]) db[k]=v;
+      // 同一参数存在中英两行时，记住「参数名与模板完全一致」的那一行的值（优先采用）
+      if(!exact[k+"|"+normSpecKey(kv[0])]) exact[k+"|"+normSpecKey(kv[0])]=v;
     });
   }
   const rows=[], seen=new Set();
   const add=(name,tplVal)=>{
     const k=specGroupKey(name); if(!k||seen.has(k)) return; seen.add(k);
-    let v=db[k]||cur[k]||firstCand(tplVal);
+    let v=exact[k+"|"+normSpecKey(name)] || db[k] || cur[k] || firstCand(tplVal);
     rows.push([name, cleanVal(v)]);
   };
   const F=t.fields||{};
