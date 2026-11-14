@@ -5392,7 +5392,15 @@ async function pv90SyncSys(){
     const sys=st["huipu_sys_v1"]||{};
     TPL_SET=sys.settings||null; // v136：后台模板（下拉候选 + 参数行重建的唯一来源）
     pv90ApplyFeatures(sys.features||{});
-    try{ if(typeof autoSyncItemsFromDb==="function") setTimeout(function(){ try{ autoSyncItemsFromDb(); }catch(e){} },80); }catch(e){}
+    try{
+      // v136：模板拿到后，等清单加载完成再按模板重建一次（最多等 12 秒，避免时序问题）
+      let _n=0; const _tk=setInterval(function(){
+        try{
+          if(tplDefault() && items && items.length){ clearInterval(_tk); autoSyncItemsFromDb(); return; }
+        }catch(e){}
+        if(++_n>24) clearInterval(_tk);
+      },500);
+    }catch(e){}
     if(pv90ApplySettings(sys.settings)){
       if(Date.now()-pv90Boot<20000 && !pv90Reloaded){ pv90Reloaded=true; setTimeout(function(){ location.reload(); },300); }
       else pv90AskRefresh();
