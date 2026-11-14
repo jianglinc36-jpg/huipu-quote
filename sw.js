@@ -1,4 +1,4 @@
-const CACHE = 'huipu-quote-v115';
+const CACHE = 'huipu-quote-v116';
 const ASSETS = ['./index.html', './admin.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
   './vendor/xlsx.full.min.js', './vendor/pdf.min.js', './vendor/pdf.worker.min.js', './vendor/mammoth.browser.min.js',
   './vendor/html2canvas.min.js', './vendor/jspdf.umd.min.js', './vendor/supabase.min.js'];
@@ -28,15 +28,21 @@ self.addEventListener('fetch', function (e) {
     if (e.request.headers.get('authorization') || e.request.headers.get('x-api-key')) return;
   } catch (err) {}
   if (/\/(api|rest|database|auth|storage|functions)(\/|$)/.test(url.pathname)) return;
-  // 主页面：网络优先，失败才用缓存 —— 保证每次打开都是最新版本
-  if (url.pathname.endsWith('index.html') || url.pathname.endsWith('admin.html') || url.pathname === '/' || e.request.mode === 'navigate') {
+  // 主页面：网络优先，失败才用「自己」的缓存 —— admin 和 index 各自独立，绝不串页
+  const isAdmin = url.pathname.endsWith('admin.html');
+  if (isAdmin || url.pathname.endsWith('index.html') || url.pathname === '/' || url.pathname.endsWith('/huipu-quote/') || e.request.mode === 'navigate') {
+    const selfKey = isAdmin ? './admin.html' : './index.html';
     e.respondWith(
       fetch(e.request).then(function (resp) {
-        const cp = resp.clone();
-        caches.open(CACHE).then(function (c) { c.put('./index.html', cp); });
+        if (resp && resp.ok) { // 只缓存成功响应，绝不把 404/错误页写进缓存
+          const cp = resp.clone();
+          caches.open(CACHE).then(function (c) { c.put(selfKey, cp); });
+        }
         return resp;
       }).catch(function () {
-        return caches.match('./index.html');
+        return caches.match(selfKey).then(function (hit) {
+          return hit || caches.match('./index.html');
+        });
       })
     );
     return;
