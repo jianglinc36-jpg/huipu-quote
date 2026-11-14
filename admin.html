@@ -1016,10 +1016,11 @@ function openTemplate(){
   $("tplSaveAs").onclick=async function(){
     var nm=prompt("新模板名称：", list[_tplIdx].name+" 副本"); if(!nm||!nm.trim()) return;
     var t2=readTplInputs();
-    tplPoolFrom(t2); // 多候选值同样只保留第一个进模板
+    var pool=tplPoolFrom(t2); // 多候选值同样收割进候选池，模板只保留第一个值
+    mergePool(pool); // 候选池合并进资料库（v128 修复：存为新模板此前漏了这步，导致下拉无候选）
     list.push({name:nm.trim(),fields:t2.fields,customFields:t2.customFields,spec:t2.spec});
     _tplIdx=list.length-1;
-    try{ await saveSys(); badge("已保存新模板「"+nm.trim()+"」 ✓",true); openTemplate(); }catch(e){ alert("保存失败："+(e.message||e)); }
+    try{ await saveSys(); if(DB.specCands&&DB.specCands.length) await saveDb(); badge("已保存新模板「"+nm.trim()+"」 ✓（候选值已同步报价软件）",true); openTemplate(); }catch(e){ alert("保存失败："+(e.message||e)); }
   };
   $("tplDefault").onclick=async function(){
     SYS.settings.dbTemplateDefault=list[_tplIdx].name;
