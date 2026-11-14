@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v143</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v144</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5592,6 +5592,13 @@ doPushCloud = async function(){
     const st=await cloud.database.from("quotation_state").select("workspace_id,data").eq("workspace_id",WS_ID).maybeSingle();
     const ex=(st&&st.data&&st.data.data)||{};
     const merged=Object.assign({},ex,gatherState()); // 保留后台键（huipu_sys_v1 等），本机键覆盖
+    // v143：候选池以云端为准——前端永不改写 specCands（模板候选值只由后台模板管理，
+    // 本地旧池若随 payload 上传，会把云端池整体抹掉/串回旧值）
+    try{
+      if(merged[DB_KEY]){
+        merged[DB_KEY]=Object.assign({}, merged[DB_KEY], { specCands: (ex[DB_KEY]&&ex[DB_KEY].specCands)||[] });
+      }
+    }catch(e){}
     const payload={ workspace_id:WS_ID, owner_id:WS.uid, data:merged, updated_at:new Date().toISOString() };
     if(st&&st.data){ const { error }=await cloud.database.from("quotation_state").update(payload).eq("workspace_id",WS_ID); if(error) throw error; }
     else { const { error }=await cloud.database.from("quotation_state").insert(payload); if(error) throw error; }
@@ -5618,7 +5625,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=143', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=144', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5816,7 +5823,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 143;
+  var APP_VER = 144;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
