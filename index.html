@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v142</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v143</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -1576,15 +1576,15 @@ async function _doPushCloudCore(){
   const payload = { workspace_id: WS_ID, owner_id: WS.uid, data: gatherState(), updated_at: new Date().toISOString() };
   try{
     const { data: rows } = await cloud.database.from("quotation_state").select("workspace_id,data").eq("workspace_id", WS_ID).maybeSingle();
-    // v142：上传前保护候选池——云端已有候选与本机候选取并集后再上传，绝不整体覆盖
+    // v143：前端永不改写候选池。候选值现在只来自「各模板自己填的值」（模板彼此独立），
+    // 本机残留的旧池若再回传，会把后台删掉的/别的模板的值重新写回云端 → 一律以云端池为准，原样保留。
     try{
       const cdb=rows&&rows.data&&rows.data[DB_KEY];
       const ldb=payload.data&&payload.data[DB_KEY];
       if(cdb||ldb){
-        const uni=unionSpecCands(cdb&&cdb.specCands, (ldb&&ldb.specCands)||(DB&&DB.specCands));
-        payload.data[DB_KEY]=Object.assign({}, cdb||{}, ldb||{}, { specCands: uni });
+        payload.data[DB_KEY]=Object.assign({}, cdb||{}, ldb||{}, { specCands: (cdb&&cdb.specCands)||[] });
       }
-    }catch(e){ console.warn("specCands union failed", e); }
+    }catch(e){ console.warn("specCands preserve failed", e); }
     if(rows){
       const { error } = await cloud.database.from("quotation_state").update(payload).eq("workspace_id", WS_ID);
       if(error) throw error;
@@ -2700,8 +2700,9 @@ async function addItem(model){
   // 否则才回退旧快照 ov.specRows/ov.pack（员工历史报价时存的参数版本）
   const ADMIN_LIB_KEYS=["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","prod_size","power","voltage","windspeed","gears","material","category","brand","spec_text"];
   const adminTouched = ADMIN_LIB_KEYS.some(k=> ov[k]!==undefined);
-  // v136：有后台模板时，新条目的参数行直接按模板结构生成（不再抄资料库里的杂乱参数文本）
-  const _tplRows = (model && tplDefault())? templateSpecRows({model:model, specRows:(ov.specRows||[])}) : null;
+  // v136/v143：有后台模板时，新条目的参数行按「该产品绑定的模板」生成（不同分类各用各的模板）
+  const _tp = model? tplForItem({model:model}) : null;
+  const _tplRows = (model && _tp)? templateSpecRows({model:model, specRows:(ov.specRows||[])}) : null;
   const specRows = (_tplRows && _tplRows.length)? _tplRows : specOrderVoltageFirst(dedupeSpecRows((adminTouched&&p)? buildSpecRows(p) : (ov.specRows? ov.specRows.map(r=>[r[0],r[1]]) : (p? buildSpecRows(p) : [["Voltage",""],["Power",""]]))));
   const packRows = p? buildPackRows(p) : [];
   items.push({
@@ -2712,8 +2713,8 @@ async function addItem(model){
   });
   dedupeItemSmart(items[items.length-1]); // 强制智能去重（规格/包装跨列）
   items[items.length-1]._dbSig=JSON.stringify(items[items.length-1].specRows); // v131：记录后台参数基线，用于后台更新后自动同步
-  items[items.length-1]._tplRev=tplRev(); // v136：记录模板版本，模板变更时强制按模板重建
-  try{ items[items.length-1]._dbOnlySig=JSON.stringify(tplSigForModel(model)); }catch(e){}
+  items[items.length-1]._tplRev=tplRevOf(_tp); // v136/v143：记录所用模板版本，该模板变更时重建
+  try{ items[items.length-1]._dbOnlySig=JSON.stringify(tplSigForModel(model, _tp)); }catch(e){}
   // new model not in built-in library -> register into local DB for next time
   if(model && !PROD_MAP[model] && !DB.custom[model]){
     DB.custom[model] = {model:model, category:"自定义", brand:"本地", moq:(p&&p.moq)||""};
@@ -2732,7 +2733,7 @@ function scrubSpecValues(it){
   it.specRows.forEach(r=>{
     if(!r||!r[0]||!r[1]) return;
     let cands=null;
-    try{ cands=specValCands(r[0]); }catch(e){ cands=[]; }
+    try{ cands=specValCands(r[0], it); }catch(e){ cands=[]; }
     const raw=String(r[1]);
     let v=raw;
     if(cands&&cands.length>=2){
@@ -2749,9 +2750,10 @@ function scrubSpecValues(it){
 }
 function refreshItemFromDb(it){
   if(!it||!it.model) return false;
-  // v136：后台模板存在时，参数行完全按模板结构重建（旧的不规范参数清零）
+  // v136/v143：按该产品绑定的模板重建参数行（不同分类的产品各用自己的模板，互不干扰）
   let rows=null;
-  if(tplDefault()) rows=templateSpecRows(it);
+  const tp=tplForItem(it);
+  if(tp) rows=templateSpecRows(it);
   if(!rows||!rows.length){
     const p=effProduct(it.model); if(!p) return false;
     rows=dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p)));
@@ -2759,27 +2761,28 @@ function refreshItemFromDb(it){
   if(!rows.length) return false;
   it.specRows=rows; it.spec=rowsToText(rows);
   it._dbSig=JSON.stringify(rows);            // 本次实际落地的参数行（用于判断用户是否手动改过）
-  it._dbOnlySig=JSON.stringify(tplSigForModel(it.model)); // 模板+资料库指纹（用于判断后台是否有更新）
-  it._tplRev=tplRev();
+  it._dbOnlySig=JSON.stringify(tplSigForModel(it.model, tp)); // 模板+资料库指纹（用于判断后台是否有更新）
+  it._tplRev=tplRevOf(tp);
   // 注意：pack / packing / 净毛重 / 内盒 / 外箱尺寸等装箱参数一律不动（用户明确要求）
   return true;
 }
 // 自动同步：只同步「参数与基线一致（未手动改过）」的条目；手动改过的不动（可用「↻ 后台参数」手动刷新）
 function autoSyncItemsFromDb(){
   let auto=0, scrubbedAny=false;
-  const rev=tplRev();
   items.forEach(it=>{
     if(!it||!it.model) return;
+    // v143：每条产品只比对自己所用模板的版本，模板之间不互相触发
+    const tp=tplForItem(it); const rev=tplRevOf(tp);
     let scrubbed=false; try{ scrubbed=scrubSpecValues(it); }catch(e){}
     if(scrubbed){ scrubbedAny=true; try{ saveOverride(it); }catch(e){} }
     // v136：后台模板有变化（新增/改了候选或字段）→ 一律按模板重建本条参数（清零旧的杂乱参数）
-    if(tplDefault() && it._tplRev!==rev){
+    if(tp && it._tplRev!==rev){
       if(refreshItemFromDb(it)){ try{ saveOverride(it); }catch(e){} auto++; }
       return;
     }
     if(!it._dbSig) it._dbSig=JSON.stringify(it.specRows||[]); // 旧条目补记基线
     const p=effProduct(it.model); if(!p) return;
-    const nb=JSON.stringify(tplSigForModel(it.model));
+    const nb=JSON.stringify(tplSigForModel(it.model, tp));
     if(!it._dbOnlySig) it._dbOnlySig=nb;      // 旧条目：以当前后台状态为基线，避免误判
     let untouched=(JSON.stringify(it.specRows)===it._dbSig);
     if(!untouched&&scrubbed){
@@ -2877,29 +2880,61 @@ const TPL_SPEC_ORDER=["voltage","power","windspeed","gears","frequency","materia
 function splitCands(v){ return String(v==null?"":v).split(/[、|｜;；]/).map(s=>s.trim()).filter(Boolean); }
 function cleanVal(v){ return String(v==null?"":v).replace(/[、，,;；|]+\s*$/,"").trim(); }
 function firstCand(v){ const a=splitCands(v); return a.length? cleanVal(a[0]) : ""; }
-let _tplCandCache=null, _tplCandRev="~";
-function tplRev(){ try{ const t=tplDefault(); return t? JSON.stringify({n:t.name,f:t.fields,c:t.customFields,s:t.spec}):""; }catch(e){ return ""; } }
-function tplCandMap(){
-  const rv=tplRev();
-  if(_tplCandCache && _tplCandRev===rv) return _tplCandCache;
+/* v143：候选缓存改为按模板名分开存（见 tplCandMap） */
+function tplByName(name){
+  const L=tplList(); if(!L.length) return null; const nm=String(name||"").trim(); if(!nm) return null;
+  return L.find(x=>x&&String(x.name||"").trim()===nm) || null;
+}
+/* v143：按分类自动匹配模板（「壁挂式吹风机」分类 ↔ 「壁挂吹风机」模板），忽略 式/型/空格 差异 */
+function normTplName(s){ return String(s||"").replace(/[\s　]/g,"").replace(/式|型/g,"").toLowerCase(); }
+function tplByCategory(cat){
+  const c=normTplName(cat); if(!c) return null;
+  let hit=null;
+  tplList().forEach(t=>{
+    if(hit||!t||!t.name) return;
+    const n=normTplName(t.name); if(!n) return;
+    if(n===c || (c.length>1&&c.indexOf(n)>=0) || (n.length>1&&n.indexOf(c)>=0)) hit=t;
+  });
+  return hit;
+}
+/* v143：模板彼此独立——每个产品只认自己那一套模板
+   绑定优先级：产品 _tpl（后台「应用到勾选产品」写入）> 分类同名模板 > 条目 _tpl > 默认模板 */
+function tplForItem(it){
+  try{
+    if(it&&it.model){
+      const c=DB.custom&&DB.custom[it.model], o=DB.overrides&&DB.overrides[it.model];
+      let t=tplByName((c&&c._tpl)||(o&&o._tpl)); if(t) return t;
+      t=tplByCategory((c&&c.category)||(o&&o.category)); if(t) return t;
+    }
+    let t2=tplByName(it&&it._tpl); if(t2) return t2;
+  }catch(e){}
+  return tplDefault();
+}
+function tplRevOf(t){ try{ return t? JSON.stringify({n:t.name,f:t.fields,c:t.customFields,s:t.spec}):""; }catch(e){ return ""; } }
+function tplRev(){ return tplRevOf(tplDefault()); }
+const _tplCandCache={};
+/* 候选值 = 该模板自己填写的值（、分隔），不再跨模板合并、也不再读全局候选池 */
+function tplCandMap(tpl){
+  const t=(tpl===undefined||tpl===null)? tplDefault() : (typeof tpl==="string"? tplByName(tpl) : tpl);
+  if(!t) return {};
+  const rv=tplRevOf(t), ck=String(t.name||"#");
+  if(_tplCandCache[ck] && _tplCandCache[ck].rev===rv) return _tplCandCache[ck].map;
   const out={};
   const add=(nm,v)=>{
     const k=specGroupKey(nm); if(!k) return;
     if(!out[k]) out[k]=[];
     splitCands(v).forEach(s=>{ const x=cleanVal(s); if(x&&out[k].indexOf(x)<0) out[k].push(x); });
   };
-  tplList().forEach(t=>{
-    Object.keys(t.fields||{}).forEach(k=>{ add(TPL_FIELD_CN[k]||k, t.fields[k]); });
-    (t.customFields||[]).forEach(r=>{ if(r&&r[0]) add(r[0], r[1]); });
-    (t.spec||[]).forEach(r=>{ if(r&&r[0]) add(r[0], r[1]); });
-  });
-  _tplCandCache=out; _tplCandRev=rv; return out;
+  Object.keys(t.fields||{}).forEach(k=>{ add(TPL_FIELD_CN[k]||k, t.fields[k]); });
+  (t.customFields||[]).forEach(r=>{ if(r&&r[0]) add(r[0], r[1]); });
+  (t.spec||[]).forEach(r=>{ if(r&&r[0]) add(r[0], r[1]); });
+  _tplCandCache[ck]={rev:rv,map:out}; return out;
 }
 /* 按模板结构重建参数行：行名/行序 = 模板；
    值优先取资料库该型号的实际值，其次条目原值，最后模板第一个候选值。
    （装箱/尺寸/重量等包装参数不在本函数处理范围，保持原样） */
 function templateSpecRows(it){
-  const t=tplDefault(); if(!t) return null;
+  const t=tplForItem(it); if(!t) return null;   // v143：按该产品绑定的模板重建，不混用其他模板
   const p=(it&&it.model)? effProduct(it.model) : null;
   const cur={}, db={}, exact={};
   ((it&&it.specRows)||[]).forEach(r=>{
@@ -2940,27 +2975,31 @@ function templateSpecRows(it){
   return rows;
 }
 /* 某型号的「模板+资料库」指纹：不含条目手动值，用于判断是否需要同步 */
-function tplSigForModel(model){
-  const rows=templateSpecRows({model:model, specRows:[]});
+function tplSigForModel(model, tpl){
+  const rows=templateSpecRows({model:model, specRows:[], _tpl: tpl&&tpl.name});
   return rows||[];
 }
-function specValCands(key){
+/* 某型号参数值的候选（v143：只取该产品所用模板的值，模板之间互不影响） */
+function specValCands(key, item){
   const out=[]; const target=specGroupKey(key);
   const push=v=>{ splitCands(v).forEach(s=>{ const x=cleanVal(s); if(x&&out.indexOf(x)<0) out.push(x); }); };
-  // 1) 后台模板候选（主来源：实时读取模板，不依赖云端候选池）
-  if(target){ const m=tplCandMap(); (m[target]||[]).forEach(push); }
-  // 2) 云端候选池（历史兼容）
-  (DB.specCands||[]).forEach(r=>{ if(r&&r[0]&&target&&specGroupKey(r[0])===target) (r[1]||[]).forEach(push); });
-  // 3) 内置固定选项
-  const nk=normSpecKey(key||"");
-  const FIX={"voltage":"dl-Voltage","frequency":"dl-Frequency","power":"dl-Power","powercord":"dl-Powercord","power cord":"dl-Powercord","color":"dl-Color","plug":"dl-Plug","certification":"dl-Certification"};
-  const fid=FIX[nk];
-  if(fid){ const fdl=document.getElementById(fid); if(fdl) fdl.querySelectorAll("option").forEach(o=>push(o.value)); }
+  // 1) 该产品所用模板的候选（唯一权威来源）
+  if(target){
+    const m=tplCandMap(item? tplForItem(item) : undefined);
+    (m[target]||[]).forEach(push);
+  }
+  // 2) 模板没有该参数时，才回退到内置标准选项（不再读跨模板的全局候选池）
+  if(!out.length){
+    const nk=normSpecKey(key||"");
+    const FIX={"voltage":"dl-Voltage","frequency":"dl-Frequency","power":"dl-Power","powercord":"dl-Powercord","power cord":"dl-Powercord","color":"dl-Color","plug":"dl-Plug","certification":"dl-Certification"};
+    const fid=FIX[nk];
+    if(fid){ const fdl=document.getElementById(fid); if(fdl) fdl.querySelectorAll("option").forEach(o=>push(o.value)); }
+  }
   return out.slice(0,300);
 }
-function refreshSpecValDl(key){
+function refreshSpecValDl(key, item){
   const dl=document.getElementById("dl-specval"); if(!dl) return;
-  dl.innerHTML=specValCands(key).map(v=>`<option value="${esc(v)}">`).join("");
+  dl.innerHTML=specValCands(key, item).map(v=>`<option value="${esc(v)}">`).join("");
 }
 /* ---------- 参数值自定义下拉（openSpecDD） ----------
    原生 datalist 会用输入框当前值过滤候选，导致「已有值/值不在候选串里」时点开只剩一项甚至为空。
@@ -2984,7 +3023,7 @@ function _openSpecDDCore(inp){
   const [i,j]=inp.dataset.srv.split(":").map(Number);
   const it=items[i]; if(!it||!it.specRows) return;
   const curName=(it.specRows[j]&&it.specRows[j][0])||"";
-  let cands=specValCands(curName);
+  let cands=specValCands(curName, it);
   if(!cands.length) return;
   const typed=(inp.dataset.ddtyped==="1")? inp.value.trim().toLowerCase():"";
   if(typed) cands=cands.filter(v=>v.toLowerCase().indexOf(typed)>=0);
@@ -5579,7 +5618,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=142', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=143', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5777,7 +5816,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 142;
+  var APP_VER = 143;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
