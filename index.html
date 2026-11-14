@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v134</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v135</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -3550,9 +3550,10 @@ function buildPISheet(cfg){
   put(12,[[0,{v:"TEL:",s:"bold"}],[2,{v:cfg.buyerTel||"",s:"cell"}],[3,{v:cfg.lcBy||"",s:"cell"}]]);
   merges.push("D12:G12");
   put(13,[[0,{v:"ATT:"+(cfg.buyerAtt||""),s:"bold"}]]);
-  // items 表头
-  const priceLabel=(cfg.term||"FOB")+" UNIT PRICE (USD)";
-  put(14,[[0,{v:"ITEM",s:"header"}],[1,{v:"MODEL",s:"header"}],[2,{v:"DESCRIPTION",s:"header"}],[4,{v:"QTY   (PCS)",s:"header"}],[5,{v:priceLabel,s:"header"}],[6,{v:"AMOUNT     (USD)",s:"header"}]]);
+  // items 表头（v135：币种跟随报价币种 CNY/USD）
+  const piCur=(cfg.currency||"USD");
+  const priceLabel=(cfg.term||"FOB")+" UNIT PRICE ("+piCur+")";
+  put(14,[[0,{v:"ITEM",s:"header"}],[1,{v:"MODEL",s:"header"}],[2,{v:"DESCRIPTION",s:"header"}],[4,{v:"QTY   (PCS)",s:"header"}],[5,{v:priceLabel,s:"header"}],[6,{v:"AMOUNT     ("+piCur+")",s:"header"}]]);
   merges.push("C14:D14");
   let totalQty=0, totalAmt=0;
   (cfg.items||[]).forEach(function(it,idx){
@@ -3567,7 +3568,7 @@ function buildPISheet(cfg){
   const tr=15+(cfg.items||[]).length;
   put(tr,[[0,{v:"total",s:"total"}],[4,{v:totalQty,s:"total"}],[6,{v:round2(totalAmt,2),s:"total"}]]);
   merges.push("A"+tr+":D"+tr);
-  put(tr+1,[[0,{v:"Say total:SAY UNITED STATES DOLLARS "+numWordsEn(totalAmt),s:"note"}]]);
+  put(tr+1,[[0,{v:"Say total:"+(piCur==="CNY"?"SAY RMB (CHINESE YUAN) ":"SAY UNITED STATES DOLLARS ")+numWordsEn(totalAmt),s:"note"}]]);
   merges.push("A"+(tr+1)+":G"+(tr+1));
   put(tr+2,[[3,{v:"Remark:"+(cfg.remark||""),s:"wrap"}]]); merges.push("D"+(tr+2)+":G"+(tr+2));
   put(tr+3,[]);
@@ -3584,8 +3585,10 @@ function buildPISheet(cfg){
 }
 function readPiCfgFromModal(){
   const g=id=>{ const el=document.getElementById(id); return el? el.value.trim():""; };
+  const pcfg=readCfg(); // v135：PI 价格转换为报价币种显示值（与报价单预览一致）
   const cfg={
     no:g("piNo")||("HP-"+todayStr()), date:g("piDate")||todayStr(),
+    currency:(pcfg.currency==="CNY")?"CNY":"USD",
     term:g("piTerm")||readTerms().term, pay:g("piPay")||"T/T",
     ship:g("piShip"), hs:g("piHs")||"8516310000/8516330000/8516320000",
     lcNo:g("piLcNo"), lcDate:g("piLcDate"), lcBy:g("piLcBy"),
@@ -3595,7 +3598,7 @@ function readPiCfgFromModal(){
     items: items.filter(Boolean).map(function(it,idx){
       const dEl=document.getElementById("piDesc_"+idx);
       const custom=dEl?String(dEl.value||"").trim():"";
-      return {model:it.model, qty:it.qty, price:it.price, specRows:it.specRows, spec:it.spec, desc:it.desc, piDesc:custom};
+      return {model:it.model, qty:it.qty, price:toCur(it.price,pcfg), specRows:it.specRows, spec:it.spec, desc:it.desc, piDesc:custom};
     })
   };
   savePiPref({ bank:cfg.bank, payText:cfg.payText, pay:cfg.pay, ship:cfg.ship, hs:cfg.hs, remark:cfg.remark });
@@ -3606,14 +3609,16 @@ async function openPIModal(){
   if(!items.length){ alert("请先添加至少一个型号，再生成 PI。"); return; }
   items.filter(Boolean).forEach(dedupeItemSmart);
   const s=readSeller(), c=readCust(), t=readTerms(), pref=piPref();
-  let total=0; items.forEach(it=>{ total+=(Number(it.qty)||0)*(Number(it.price)||0); });
+  const pcfg=readCfg(); // v135：PI 价格跟随报价币种（CNY/USD），与报价单预览一致
+  const curLab=(pcfg.currency==="CNY")?"CNY":"USD";
+  let total=0; items.forEach(it=>{ total+=rowAmt(it,pcfg); });
   const mask=document.createElement("div"); mask.id="piModalMask";
   mask.style.cssText="position:fixed;inset:0;background:rgba(15,30,48,.55);z-index:999998;display:flex;align-items:flex-start;justify-content:center;padding:22px;overflow:auto";
   const inp='style="flex:1 1 110px;min-width:0;padding:8px 10px;border:1px solid #cdd6df;border-radius:8px;font-size:13px;box-sizing:border-box"';
   const row=(label,inner)=>'<div style="display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap"><span style="flex:0 0 96px;font-size:13px;color:#33475b">'+label+'</span>'+inner+'</div>';
   const itemRows=items.filter(Boolean).map(function(it,i){
-    const amt=round2((Number(it.qty)||0)*(Number(it.price)||0),2);
-    return '<tr><td style="padding:4px 6px;border-bottom:1px solid #eef2f5">'+(i+1)+'</td><td style="padding:4px 6px;border-bottom:1px solid #eef2f5">'+escHtml(it.model||"")+'</td><td style="padding:4px 6px;border-bottom:1px solid #eef2f5;text-align:right">'+escHtml(String(it.qty||0))+'</td><td style="padding:4px 6px;border-bottom:1px solid #eef2f5;text-align:right">'+escHtml(String(it.price||0))+'</td><td style="padding:4px 6px;border-bottom:1px solid #eef2f5;text-align:right">'+amt.toFixed(2)+'</td></tr>';
+    const amt=rowAmt(it,pcfg);
+    return '<tr><td style="padding:4px 6px;border-bottom:1px solid #eef2f5">'+(i+1)+'</td><td style="padding:4px 6px;border-bottom:1px solid #eef2f5">'+escHtml(it.model||"")+'</td><td style="padding:4px 6px;border-bottom:1px solid #eef2f5;text-align:right">'+escHtml(String(it.qty||0))+'</td><td style="padding:4px 6px;border-bottom:1px solid #eef2f5;text-align:right">'+escHtml(String(toCur(it.price,pcfg)))+'</td><td style="padding:4px 6px;border-bottom:1px solid #eef2f5;text-align:right">'+amt.toFixed(2)+'</td></tr>';
   }).join("");
   mask.innerHTML='<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;padding:20px 22px;box-shadow:0 18px 50px rgba(0,0,0,.35)">'
     +'<h3 style="margin:0 0 4px;color:#1f4e79">🧾 一键生成标准 PI（Proforma Invoice）</h3>'
@@ -3628,8 +3633,8 @@ async function openPIModal(){
     +row("L/C (选填)",'<input id="piLcNo" placeholder="L/C NO." style="flex:1 1 90px;min-width:0;padding:8px 10px;border:1px solid #cdd6df;border-radius:8px;font-size:13px"><input id="piLcDate" placeholder="L/C DATE" style="flex:1 1 90px;min-width:0;padding:8px 10px;border:1px solid #cdd6df;border-radius:8px;font-size:13px"><input id="piLcBy" placeholder="L/C ISSUED BY" style="flex:1 1 120px;min-width:0;padding:8px 10px;border:1px solid #cdd6df;border-radius:8px;font-size:13px">')
     +row("Remark",'<input id="piRemark" value="'+escHtml(pref.remark||"")+'" '+inp+'>')
     +row("银行账号",'<textarea id="piBank" rows="4" style="flex:1 1 100%;padding:8px 10px;border:1px solid #cdd6df;border-radius:8px;font-size:13px;box-sizing:border-box;font-family:inherit">'+escHtml(pref.bank||PI_BANK_DEFAULT)+'</textarea>')
-    +'<div style="margin:8px 0 2px;font-size:13px;color:#33475b"><b>产品明细（自动来自报价单，共 '+(items.filter(Boolean).length)+' 条 · 合计 USD '+total.toFixed(2)+'）</b></div>'
-    +'<div style="max-height:150px;overflow:auto;border:1px solid #eef2f5;border-radius:8px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr><th style="text-align:left;padding:4px 6px;background:#f4f7fa">#</th><th style="text-align:left;padding:4px 6px;background:#f4f7fa">Model</th><th style="text-align:right;padding:4px 6px;background:#f4f7fa">Qty</th><th style="text-align:right;padding:4px 6px;background:#f4f7fa">Unit(USD)</th><th style="text-align:right;padding:4px 6px;background:#f4f7fa">Amount</th></tr></thead><tbody>'+itemRows+'</tbody></table></div>'
+    +'<div style="margin:8px 0 2px;font-size:13px;color:#33475b"><b>产品明细（自动来自报价单，共 '+(items.filter(Boolean).length)+' 条 · 合计 '+curLab+' '+total.toFixed(2)+'）</b></div>'
+    +'<div style="max-height:150px;overflow:auto;border:1px solid #eef2f5;border-radius:8px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr><th style="text-align:left;padding:4px 6px;background:#f4f7fa">#</th><th style="text-align:left;padding:4px 6px;background:#f4f7fa">Model</th><th style="text-align:right;padding:4px 6px;background:#f4f7fa">Qty</th><th style="text-align:right;padding:4px 6px;background:#f4f7fa">Unit('+curLab+')</th><th style="text-align:right;padding:4px 6px;background:#f4f7fa">Amount</th></tr></thead><tbody>'+itemRows+'</tbody></table></div>'
     +'<div style="margin:8px 0 2px;font-size:13px;color:#33475b"><b>产品参数描述（预填自动参数，可换行、可自由修改，导出以此为准）</b></div>'
     +items.filter(Boolean).map(function(it,i){
       return '<div style="display:flex;gap:6px;margin:4px 0;align-items:flex-start"><span style="flex:0 0 76px;font-size:12.5px;font-weight:bold;color:#33475b;overflow:hidden;text-overflow:ellipsis;padding-top:8px">'+escHtml(it.model||"")+'</span><textarea id="piDesc_'+i+'" rows="2" style="flex:1 1 100%;padding:8px 10px;border:1px solid #cdd6df;border-radius:8px;font-size:13px;box-sizing:border-box;font-family:inherit;line-height:1.5" placeholder="PI 描述（参数/描述/颜色，可换行自定义）">'+escHtml(piDescription(it))+'</textarea></div>';
@@ -3738,11 +3743,11 @@ function buildPiHtml(cfg){
   +'<td style="width:27%;vertical-align:top"><b>L/C NO.</b><br>'+escHtml(cfg.lcNo||"")+'<br><br><b>L/C ISSUED BY</b><br>'+escHtml(cfg.lcBy||"")+'</td>'
   +'<td style="width:27%;vertical-align:top"><b>L/C DATE</b><br>'+escHtml(cfg.lcDate||"")+'</td></tr></table>'
   +'<table style="width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed">'
-  +'<tr style="background:#f0f0f0"><th style="border:1px solid #111;padding:6px 4px;width:5%">ITEM</th><th style="border:1px solid #111;padding:6px 4px;width:15%">MODEL</th><th style="border:1px solid #111;padding:6px 4px;width:36%">DESCRIPTION</th><th style="border:1px solid #111;padding:6px 4px;width:10%">QTY (PCS)</th><th style="border:1px solid #111;padding:6px 4px;width:16%">'+escHtml((cfg.term||"FOB")+" UNIT PRICE (USD)")+'</th><th style="border:1px solid #111;padding:6px 4px;width:18%">AMOUNT (USD)</th></tr>'
+  +'<tr style="background:#f0f0f0"><th style="border:1px solid #111;padding:6px 4px;width:5%">ITEM</th><th style="border:1px solid #111;padding:6px 4px;width:15%">MODEL</th><th style="border:1px solid #111;padding:6px 4px;width:36%">DESCRIPTION</th><th style="border:1px solid #111;padding:6px 4px;width:10%">QTY (PCS)</th><th style="border:1px solid #111;padding:6px 4px;width:16%">'+escHtml((cfg.term||"FOB")+" UNIT PRICE ("+(cfg.currency||"USD")+")")+'</th><th style="border:1px solid #111;padding:6px 4px;width:18%">AMOUNT ('+escHtml(cfg.currency||"USD")+')</th></tr>'
   +rows
   +'<tr><td style="border:1px solid #111;padding:6px;font-weight:bold" colspan="4">total</td><td style="border:1px solid #111;padding:6px;text-align:center;font-weight:bold">'+totalQty+'</td><td style="border:1px solid #111;padding:6px;text-align:center;font-weight:bold">'+round2(totalAmt,2).toFixed(2)+'</td></tr>'
   +'</table>'
-  +'<div style="font-size:12.5px;padding:8px 0">Say total:SAY UNITED STATES DOLLARS '+numWordsEn(totalAmt)+'</div>'
+  +'<div style="font-size:12.5px;padding:8px 0">Say total:'+((cfg.currency||"USD")==="CNY"?"SAY RMB (CHINESE YUAN) ":"SAY UNITED STATES DOLLARS ")+numWordsEn(totalAmt)+'</div>'
   +'<div style="font-size:12.5px;padding:0 0 10px;text-align:right">Remark:'+(cfg.remark?escHtml(cfg.remark):"")+'</div>'
   +'<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:14px"><tr>'
   +'<td style="border:1px solid #111;padding:8px;width:12%;vertical-align:top"><b>3. BANK ACCOUNT</b></td>'
@@ -5346,7 +5351,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=134').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=135').catch(function(e){ /* offline not critical */ });
     });
   }
 
