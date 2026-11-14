@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v120</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v121</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -393,6 +393,7 @@
 <datalist id="dl-Color"><option>Black</option><option>White</option><option>Pink</option><option>Blue</option><option>Customized color</option></datalist>
 <datalist id="dl-Plug"><option>EU plug</option><option>US plug</option><option>UK plug</option><option>AU plug</option><option>VDE plug</option><option>Customized plug</option></datalist>
 <datalist id="dl-Certification"><option>CE</option><option>CE/ROHS</option><option>CE/GS/ROHS</option><option>ETL</option><option>GS</option><option>CCC</option></datalist>
+<datalist id="dl-specval"></datalist>
 <datalist id="dl-Term"><option>EXW</option><option>FOB Ningbo</option><option>FOB Shanghai</option><option>FOB Shenzhen</option><option>CIF</option><option>CFR</option><option>DDP</option><option>DDU</option><option>FCA</option></datalist>
 <datalist id="dl-Pay"><option>T/T</option><option>L/C at sight</option><option>L/C 30 days</option><option>D/P</option><option>Western Union</option><option>PayPal</option><option>Trade Assurance</option></datalist>
 <datalist id="dl-Ship"><option>by sea</option><option>by air</option><option>by express (DHL/FedEx/UPS)</option><option>by railway</option><option>by sea then by truck</option></datalist>
@@ -1460,7 +1461,7 @@ async function mergeCloudDb(){
     const { data: st } = await cloud.database.from("quotation_state").select("data, updated_at").eq("workspace_id", WS_ID).maybeSingle();
     if(st && st.data && st.data[DB_KEY]){
       const cdb=st.data[DB_KEY]||{};
-      const merged={ custom:Object.assign({},DB.custom,cdb.custom||{}), overrides:Object.assign({},DB.overrides,cdb.overrides||{}), specLib:(cdb.specLib&&cdb.specLib.length)?cdb.specLib:(DB.specLib||[]) };
+      const merged={ custom:Object.assign({},DB.custom,cdb.custom||{}), overrides:Object.assign({},DB.overrides,cdb.overrides||{}), specLib:(cdb.specLib&&cdb.specLib.length)?cdb.specLib:(DB.specLib||[]), specCands:(cdb.specCands&&cdb.specCands.length)?cdb.specCands:(DB.specCands||[]) };
       // 图片独立通道：云端图片优先覆盖；本机有而云端没有的图保留
       const localImgs=loadJSON(DBIMG_KEY,null)||{};
       const cimg=st.data[DBIMG_KEY]||{};
@@ -2633,6 +2634,20 @@ function dlFor(key){
   const map = {"Voltage":"dl-Voltage","Frequency":"dl-Frequency","Power":"dl-Power","Power cord":"dl-Powercord","Color":"dl-Color","Plug":"dl-Plug","Certification":"dl-Certification"};
   return map[key]||"";
 }
+/* 参数候选池：管理员模板里的多候选值（DB.specCands）+ 原内置下拉选项 */
+function specValCands(key){
+  const nk=normSpecKey(key||""); const out=[];
+  const push=v=>{ v=String(v||"").trim(); if(v&&!out.includes(v)) out.push(v); };
+  (DB.specCands||[]).forEach(r=>{ if(r&&r[0]&&normSpecKey(r[0])===nk) (r[1]||[]).forEach(push); });
+  const FIX={"voltage":"dl-Voltage","frequency":"dl-Frequency","power":"dl-Power","powercord":"dl-Powercord","power cord":"dl-Powercord","color":"dl-Color","plug":"dl-Plug","certification":"dl-Certification"};
+  const fid=FIX[nk];
+  if(fid){ const fdl=document.getElementById(fid); if(fdl) fdl.querySelectorAll("option").forEach(o=>push(o.value)); }
+  return out;
+}
+function refreshSpecValDl(key){
+  const dl=document.getElementById("dl-specval"); if(!dl) return;
+  dl.innerHTML=specValCands(key).map(v=>`<option value="${esc(v)}">`).join("");
+}
 function renderItems(){
   const box=$("items");
   if(!items.length){ box.innerHTML='<div class="hint">尚未添加型号。</div>'; return; }
@@ -2648,10 +2663,9 @@ function renderItems(){
       + (it.img? ` <button class="btn sm ghost" data-imgdel="${i}">移除图片</button>`:"")
       + ` <button class="btn sm ghost" data-itdb="${i}" title="把该条目的型号/规格/包装/图片写入资料库">⤴ 入库</button>`;
     const specGrid = (it.specRows||[]).map((r,j)=>{
-      const dl = dlFor(r[0]);
       return `<div class="kv">
         <input class="k" data-srk="${i}:${j}" value="${esc(r[0])}" placeholder="参数名">
-        <input class="v" data-srv="${i}:${j}" value="${esc(r[1])}" ${dl?`list="${dl}"`:""} placeholder="值（可选/自填）">
+        <input class="v" data-srv="${i}:${j}" value="${esc(r[1])}" list="dl-specval" placeholder="值（可选/自填）">
         <button class="del" data-rmsr="${i}:${j}" title="删除参数">✕</button>
       </div>`;
     }).join("");
@@ -2717,6 +2731,7 @@ function renderItems(){
   box.querySelectorAll("[data-srk]").forEach(inp=> inp.oninput=()=>{
     const [i,j]=inp.dataset.srk.split(":").map(Number);
     items[i].specRows[j][0]=inp.value; items[i].spec=rowsToText(items[i].specRows); saveOverride(items[i]); addSpecKey(inp.value); renderPreview(); persistAll();
+    refreshSpecValDl(inp.value); // 参数名改动后，候选值下拉同步切换
   });
   box.querySelectorAll("[data-srv]").forEach(inp=> inp.oninput=()=>{
     const [i,j]=inp.dataset.srv.split(":").map(Number);
@@ -3954,6 +3969,12 @@ function ingestCatalogText(text, src){
 /* ---------- events ---------- */
 function bind(){
   $("search").addEventListener("input",e=>renderSuggest(e.target.value));
+  // 参数值聚焦时，按该行参数名填充候选下拉（管理员模板多候选 + 内置选项）
+  $("items").addEventListener("focusin",e=>{
+    const inp=e.target.closest("[data-srv]"); if(!inp) return;
+    const kv=inp.closest(".kv"); const kEl=kv?kv.querySelector(".k"):null;
+    refreshSpecValDl(kEl?kEl.value:"");
+  });
   document.addEventListener("click",e=>{ if(!e.target.closest(".searchbox")) $("suggest").style.display="none"; });
   $("addBatch").onclick=()=>addBatch($("batchInput").value);
   $("batchInput").addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); addBatch($("batchInput").value); } });
@@ -5093,7 +5114,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=120').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=121').catch(function(e){ /* offline not critical */ });
     });
   }
 
