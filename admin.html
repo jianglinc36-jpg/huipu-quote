@@ -414,6 +414,7 @@ async function renderDash(M){
 
 /* ---------- 报价记录 ---------- */
 var _quoteFilter="";
+var _quoteFilterFocus=false; // v131b：同 dbSearch，重渲染后恢复焦点支持连续输入
 async function renderQuotes(M){
   var rows; try{ rows=await fetchSaves(); }catch(e){ M.innerHTML='<div class="err">加载失败：'+esc(e.message||e)+'</div>'; return; }
   if(_quoteFilter) rows=rows.filter(function(r){ return (sumOf(r).customer||"").indexOf(_quoteFilter)>=0 || (r.title||"").indexOf(_quoteFilter)>=0; });
@@ -440,7 +441,10 @@ async function renderQuotes(M){
   });
   h+='</tbody></table></div></div>';
   M.innerHTML=h;
-  $("qSearch").oninput=function(){ _quoteFilter=this.value; clearTimeout(renderQuotes._t); renderQuotes._t=setTimeout(function(){ showTab("quotes"); },350); };
+  $("qSearch").oninput=function(){ _quoteFilter=this.value; _quoteFilterFocus=true; clearTimeout(renderQuotes._t); renderQuotes._t=setTimeout(function(){ showTab("quotes"); },350); };
+  $("qSearch").onfocus=function(){ _quoteFilterFocus=true; };
+  $("qSearch").onblur=function(){ _quoteFilterFocus=false; };
+  if(_quoteFilterFocus){ var _qsi=document.getElementById("qSearch"); if(_qsi){ _qsi.focus(); try{ _qsi.setSelectionRange(_qsi.value.length,_qsi.value.length); }catch(e){} } }
   $("qNew").onclick=function(){ openNewQuote(); };
   $("qImport").onclick=function(){ $("qImportFile").click(); };
   $("qImportFile").onchange=function(){
@@ -681,6 +685,8 @@ async function renderMembers(M){
 
 /* ---------- 资料库 ---------- */
 var _dbSearch="";
+var _dbSearchFocus=false; // v131b：搜索框聚焦标记——重渲染后恢复焦点，否则每输一个字符就要重新点一次
+function _restoreSearchFocus(id){ if(!_dbSearchFocus) return; var si=document.getElementById(id); if(!si) return; si.focus(); try{ si.setSelectionRange(si.value.length,si.value.length); }catch(e){} }
 var _dbCat="";
 var PROD_CATS=["壁挂式吹风机","家用吹风机","高速吹风机","AC吹风机","造型器","折叠吹风机"];
 function renderDb(M){
@@ -724,7 +730,9 @@ function renderDb(M){
   });
   h+='</tbody></table></div></div>';
   M.innerHTML=h;
-  $("dbSearch").oninput=function(){ _dbSearch=this.value; clearTimeout(renderDb._t); renderDb._t=setTimeout(function(){ showTab("db"); },300); };
+  $("dbSearch").oninput=function(){ _dbSearch=this.value; _dbSearchFocus=true; clearTimeout(renderDb._t); renderDb._t=setTimeout(function(){ showTab("db"); },300); };
+  $("dbSearch").onfocus=function(){ _dbSearchFocus=true; };
+  $("dbSearch").onblur=function(){ _dbSearchFocus=false; };
   $("dbCat").onchange=function(){ _dbCat=this.value; showTab("db"); };
   $("dbAdd").onclick=function(){ editProduct("",true); };
   $("dbSelAll").onchange=function(){ var on=this.checked; document.querySelectorAll(".dbChk").forEach(function(c){ c.checked=on; }); };
@@ -741,6 +749,7 @@ function renderDb(M){
     delete DB.custom[m]; delete DB.overrides[m];
     try{ await saveDb(); showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
   };});
+  _restoreSearchFocus("dbSearch"); // v131b：重渲染后恢复搜索框焦点与光标，支持连续输入
 }
 var PROD_FIELDS=[["model","型号 *"],["category","类别"],["brand","品牌"],["power","功率"],["voltage","电压"],["frequency","频率"],["windspeed","风速"],["gears","档位"],["material","材质"],["packing","装箱量/包装"],["net_weight","净重"],["gross_weight","毛重"],["inner_box","内盒"],["outer_box","外箱"],["prod_size","产品尺寸"],["moq","起订量"],["price_rmb","底价 RMB"],["price_usd_exw","底价 USD"]];
 var PF_SAVE=PROD_FIELDS.concat([["spec_text","规格参数"]]);
