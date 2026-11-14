@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v125</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v126</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -2648,36 +2648,39 @@ function dlFor(key){
   const map = {"Voltage":"dl-Voltage","Frequency":"dl-Frequency","Power":"dl-Power","Power cord":"dl-Powercord","Color":"dl-Color","Plug":"dl-Plug","Certification":"dl-Certification"};
   return map[key]||"";
 }
-/* 参数候选池：管理员模板里的多候选值（DB.specCands）+ 原内置下拉选项 */
+/* 参数候选池：管理员模板候选值（DB.specCands）优先，内置选项次之；
+   资料库扫描仅作兜底（池和内置都没有时才用），避免历史脏数据混进下拉列表 */
 function specValCands(key){
   const nk=normSpecKey(key||""); const out=[];
   const push=v=>{
     String(v==null?"":v).split(/[、|｜;；]/).map(s=>s.trim()).filter(Boolean).forEach(s=>{ if(!out.includes(s)) out.push(s); });
   };
-  // 1) 管理员模板候选池
+  // 1) 管理员模板候选池（可信来源）
   (DB.specCands||[]).forEach(r=>{ if(r&&r[0]&&normSpecKey(r[0])===nk) (r[1]||[]).forEach(push); });
-  // 2) 资料库现有产品的同名参数值（多值自动拆成候选，保证候选池没同步时也有可选）
-  try{
-    const scanText=(txt)=>{
-      String(txt||"").split("\n").forEach(ln=>{
-        const i=ln.indexOf(":"), i2=ln.indexOf("：");
-        const si=i>=0&&(i2<0||i<i2)?i:i2;
-        if(si>0&&normSpecKey(ln.slice(0,si))===nk) push(ln.slice(si+1));
-      });
-    };
-    const scanObj=(o)=>{
-      if(!o) return;
-      ["power","voltage","windspeed","gears","material","frequency","category","brand"].forEach(k=>{ if(normSpecKey(k)===nk&&o[k]) push(o[k]); });
-      if(Array.isArray(o.specRows)) o.specRows.forEach(r=>{ if(Array.isArray(r)&&normSpecKey(r[0])===nk) push(r[1]); });
-      if(typeof o.spec_text==="string") scanText(o.spec_text);
-    };
-    Object.keys(DB.overrides||{}).slice(0,400).forEach(m=>scanObj(DB.overrides[m]));
-    Object.keys(DB.custom||{}).slice(0,400).forEach(m=>scanObj(DB.custom[m]));
-  }catch(e){}
-  // 3) 内置固定选项
+  // 2) 内置固定选项
   const FIX={"voltage":"dl-Voltage","frequency":"dl-Frequency","power":"dl-Power","powercord":"dl-Powercord","power cord":"dl-Powercord","color":"dl-Color","plug":"dl-Plug","certification":"dl-Certification"};
   const fid=FIX[nk];
   if(fid){ const fdl=document.getElementById(fid); if(fdl) fdl.querySelectorAll("option").forEach(o=>push(o.value)); }
+  // 3) 兜底：以上两者都没有时，才扫描资料库现有产品的同名参数值（历史数据可能含脏值，仅空档时使用）
+  if(!out.length){
+    try{
+      const scanText=(txt)=>{
+        String(txt||"").split("\n").forEach(ln=>{
+          const i=ln.indexOf(":"), i2=ln.indexOf("：");
+          const si=i>=0&&(i2<0||i<i2)?i:i2;
+          if(si>0&&normSpecKey(ln.slice(0,si))===nk) push(ln.slice(si+1));
+        });
+      };
+      const scanObj=(o)=>{
+        if(!o) return;
+        ["power","voltage","windspeed","gears","material","frequency","category","brand"].forEach(k=>{ if(normSpecKey(k)===nk&&o[k]) push(o[k]); });
+        if(Array.isArray(o.specRows)) o.specRows.forEach(r=>{ if(Array.isArray(r)&&normSpecKey(r[0])===nk) push(r[1]); });
+        if(typeof o.spec_text==="string") scanText(o.spec_text);
+      };
+      Object.keys(DB.overrides||{}).slice(0,400).forEach(m=>scanObj(DB.overrides[m]));
+      Object.keys(DB.custom||{}).slice(0,400).forEach(m=>scanObj(DB.custom[m]));
+    }catch(e){}
+  }
   return out.slice(0,300);
 }
 function refreshSpecValDl(key){
@@ -5204,7 +5207,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=125').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=126').catch(function(e){ /* offline not critical */ });
     });
   }
 
