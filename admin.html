@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=121').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=122').catch(function () {});
     });
   }
 </script>
@@ -748,8 +748,10 @@ var BATCH_FIELDS=PROD_FIELDS.filter(function(f){ return f[0]!=="model"; });
 function editProduct(m,isNew){
   var p=isNew?{}:(effProduct(m)||{});
   if(isNew){
-    // 固定参数模板：新增产品自动带入模板里的固定值与固定规格参数
-    var tpl=(SYS.settings&&SYS.settings.dbTemplate)||{};
+    // 固定参数模板：新增产品自动带入「默认模板」的固定值与固定规格参数（支持多套模板）
+    var _tl=(SYS.settings&&Array.isArray(SYS.settings.dbTemplates))?SYS.settings.dbTemplates:null;
+    var _dn=(SYS.settings&&SYS.settings.dbTemplateDefault)||"";
+    var tpl=_tl? (_tl.filter(function(x){ return x.name===_dn; })[0]||_tl[0]||{}) : ((SYS.settings&&SYS.settings.dbTemplate)||{});
     p=Object.assign({},tpl.fields||{},p);
     var tplLines=[];
     (tpl.spec||[]).concat(tpl.customFields||[]).forEach(function(r){ if(r[0]) tplLines.push(r[0]+": "+firstCandidate(r[1])); else if(r[1]) tplLines.push(firstCandidate(r[1])); });
@@ -921,8 +923,26 @@ function readTplInputs(){
   });
   return {fields:fields,customFields:custom,spec:spec};
 }
+var _tplIdx=0;
+function tplList(){
+  var S=SYS.settings=SYS.settings||{};
+  if(!Array.isArray(S.dbTemplates)||!S.dbTemplates.length){
+    var legacy=S.dbTemplate||{};
+    S.dbTemplates=[{name:"默认模板",fields:legacy.fields||{},customFields:legacy.customFields||[],spec:legacy.spec||[]}];
+    if(!S.dbTemplateDefault) S.dbTemplateDefault="默认模板";
+  }
+  return S.dbTemplates;
+}
+function defaultTpl(list){
+  var dn=(SYS.settings&&SYS.settings.dbTemplateDefault)||"";
+  for(var i=0;i<list.length;i++) if(list[i].name===dn) return list[i];
+  return list[0];
+}
 function openTemplate(){
-  var t=(SYS.settings&&SYS.settings.dbTemplate)||{};
+  var list=tplList();
+  if(_tplIdx>=list.length) _tplIdx=0;
+  var t=list[_tplIdx]||list[0];
+  var defName=(SYS.settings.dbTemplateDefault)||list[0].name;
   var tf=t.fields||{}, tc=t.customFields||[], ts=t.spec||[];
   var hasSaved=BATCH_FIELDS.some(function(f){ return tf[f[0]]!=null&&tf[f[0]]!==""; })||tc.length;
   var rows=[];
@@ -941,7 +961,13 @@ function openTemplate(){
     rows.push(tplFieldRowHtml(r[0],r[1]));
   });
   var h='<h3>固定参数模板</h3>'
-   +'<div class="hint" style="margin-bottom:6px">设定一套固定参数：①保存后，新增产品自动带入这些值；②先在资料库列表勾选产品，再点「应用到勾选产品」一键套用。固定字段每行可删除（点「删」），点「＋ 添加字段」可加内置字段或自定义字段。</div>'
+   +'<div class="hint" style="margin-bottom:6px">可保存多套模板（如 家用吹风机 / 壁挂式吹风机 / 高速吹风机 各一套）：下拉切换 → 修改 → 「保存模板」；「存为新模板」把当前内容另存一套；★默认模板用于「新增产品自动带入」。先在资料库列表勾选产品，再点「应用到勾选产品」一键套用。固定字段每行可删除（点「删」），点「＋ 添加字段」可加内置字段或自定义字段。</div>'
+   +'<div class="bar" style="margin-bottom:6px">'
+   +'<select id="tplSel" style="max-width:220px">'+list.map(function(x,i){ return '<option value="'+i+'"'+(i===_tplIdx?' selected':'')+'>'+esc(x.name)+(x.name===defName?' ★默认':'')+'</option>'; }).join("")+'</select>'
+   +'<button class="btn sm ghost" id="tplSaveAs">存为新模板</button>'
+   +'<button class="btn sm ghost" id="tplDefault">设为默认</button>'
+   +'<button class="btn sm danger" id="tplDel">删除模板</button>'
+   +'</div>'
    +'<datalist id="tplFieldNames">'+BATCH_FIELDS.map(function(f){ return '<option value="'+esc(f[1])+'">'; }).join("")+TPL_EXTRA_FIELDS.map(function(n){ return '<option value="'+esc(n)+'">'; }).join("")+'</datalist>'
    +'<div style="margin:6px 0 4px"><b>固定字段</b> <span class="hint">（字段名可下拉选择内置字段，也可自己输入；留空的行保存时忽略）</span></div>'
    +'<div id="tpFieldRows">'+rows.join("")+'</div>'
@@ -956,10 +982,31 @@ function openTemplate(){
   bindTplFieldRows();
   bindSpecEditor("tpSpecRows","tpAdd");
   $("tpFieldAdd").onclick=function(){ $("#tpFieldRows").insertAdjacentHTML("beforeend",tplFieldRowHtml("","")); bindTplFieldRows(); };
+  $("tplSel").onchange=function(){ _tplIdx=+this.value; openTemplate(); };
+  $("tplSaveAs").onclick=async function(){
+    var nm=prompt("新模板名称：", list[_tplIdx].name+" 副本"); if(!nm||!nm.trim()) return;
+    var t2=readTplInputs();
+    list.push({name:nm.trim(),fields:t2.fields,customFields:t2.customFields,spec:t2.spec});
+    _tplIdx=list.length-1;
+    try{ await saveSys(); badge("已保存新模板「"+nm.trim()+"」 ✓",true); openTemplate(); }catch(e){ alert("保存失败："+(e.message||e)); }
+  };
+  $("tplDefault").onclick=async function(){
+    SYS.settings.dbTemplateDefault=list[_tplIdx].name;
+    try{ await saveSys(); badge("默认模板已设为「"+list[_tplIdx].name+"」 ✓",true); openTemplate(); }catch(e){ alert("保存失败："+(e.message||e)); }
+  };
+  $("tplDel").onclick=async function(){
+    if(list.length<=1){ alert("至少保留一套模板"); return; }
+    if(!confirm("删除模板「"+list[_tplIdx].name+"」？")) return;
+    var delName=list[_tplIdx].name;
+    list.splice(_tplIdx,1); _tplIdx=0;
+    if(SYS.settings.dbTemplateDefault===delName) delete SYS.settings.dbTemplateDefault;
+    try{ await saveSys(); badge("模板已删除 ✓",true); openTemplate(); }catch(e){ alert("保存失败："+(e.message||e)); }
+  };
   $("tpSave").onclick=async function(){
     var t2=readTplInputs();
-    SYS.settings=SYS.settings||{};
-    SYS.settings.dbTemplate=t2;
+    list[_tplIdx].fields=t2.fields; list[_tplIdx].customFields=t2.customFields; list[_tplIdx].spec=t2.spec;
+    // 默认模板同时写入旧字段（兼容新增产品预填）
+    if(defaultTpl(list)===list[_tplIdx]) SYS.settings.dbTemplate={fields:t2.fields,customFields:t2.customFields,spec:t2.spec};
     // 参数候选池写入资料库（DB.specCands），员工端报价软件参数值下拉可直接选取
     var pool={};
     (t2.spec||[]).concat(t2.customFields||[]).forEach(function(r){
@@ -975,7 +1022,7 @@ function openTemplate(){
     try{
       await saveSys();
       if(DB.specCands.length) await saveDb();
-      closeModal(); badge("固定参数模板已保存 ✓（新增产品自动带入；候选值已同步报价软件）",true);
+      closeModal(); badge("模板「"+list[_tplIdx].name+"」已保存 ✓（候选值已同步报价软件）",true);
     }catch(e){ alert("保存失败："+(e.message||e)); }
   };
   $("tpApply").onclick=async function(){
