@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v124</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v125</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -2684,6 +2684,39 @@ function refreshSpecValDl(key){
   const dl=document.getElementById("dl-specval"); if(!dl) return;
   dl.innerHTML=specValCands(key).map(v=>`<option value="${esc(v)}">`).join("");
 }
+/* ---------- 参数值自定义下拉（openSpecDD） ----------
+   原生 datalist 会用输入框当前值过滤候选，导致「已有值/值不在候选串里」时点开只剩一项甚至为空。
+   自定义弹层：点击/聚焦即显示全部候选，输入时才过滤，点选后直接写入。 */
+let specDD=null;
+function closeSpecDD(){ if(specDD){ specDD.remove(); specDD=null; } }
+function openSpecDD(inp){
+  closeSpecDD();
+  if(!inp||inp.dataset.srv==null) return;
+  const [i,j]=inp.dataset.srv.split(":").map(Number);
+  const it=items[i]; if(!it||!it.specRows) return;
+  const curName=(it.specRows[j]&&it.specRows[j][0])||"";
+  let cands=specValCands(curName);
+  if(!cands.length) return;
+  const typed=(inp.dataset.ddtyped==="1")? inp.value.trim().toLowerCase():"";
+  if(typed) cands=cands.filter(v=>v.toLowerCase().indexOf(typed)>=0);
+  if(!cands.length) return;
+  const dd=document.createElement("div"); dd.className="specdd"; dd._for=inp;
+  dd.innerHTML=cands.map(v=>`<div class="specdd-i" data-v="${esc(v)}">${esc(v)}</div>`).join("");
+  document.body.appendChild(dd);
+  const r=inp.getBoundingClientRect();
+  dd.style.left=r.left+"px";
+  dd.style.top=Math.min(r.bottom+2, Math.max(10,window.innerHeight-250))+"px";
+  dd.style.minWidth=Math.max(r.width,200)+"px";
+  dd.style.maxWidth="480px";
+  dd.querySelectorAll(".specdd-i").forEach(el=> el.addEventListener("mousedown",ev=>{
+    ev.preventDefault(); // 抢在 blur 之前写入
+    inp.value=el.dataset.v;
+    inp.dispatchEvent(new Event("input",{bubbles:true}));
+    inp.dispatchEvent(new Event("change",{bubbles:true}));
+    closeSpecDD();
+  }));
+  specDD=dd;
+}
 function renderItems(){
   const box=$("items");
   if(!items.length){ box.innerHTML='<div class="hint">尚未添加型号。</div>'; return; }
@@ -2699,14 +2732,10 @@ function renderItems(){
       + (it.img? ` <button class="btn sm ghost" data-imgdel="${i}">移除图片</button>`:"")
       + ` <button class="btn sm ghost" data-itdb="${i}" title="把该条目的型号/规格/包装/图片写入资料库">⤴ 入库</button>`;
     const specGrid = (it.specRows||[]).map((r,j)=>{
-      // 每行独立候选列表：渲染时即按参数名生成，点下拉必有所选，不依赖点击时机
-      const dlId = `dl-sr-${i}-${j}`;
-      const cands = specValCands(r[0]);
-      const dlHtml = `<datalist id="${dlId}">${cands.map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`;
-      return `<div class="kv">
+      // 候选下拉改为自定义弹层（openSpecDD）：原生 datalist 会被输入框当前值过滤，导致点开只剩一项
+      return `<div class="kv kv-spec">
         <input class="k" data-srk="${i}:${j}" value="${esc(r[0])}" placeholder="参数名">
-        <input class="v" data-srv="${i}:${j}" value="${esc(r[1])}" list="${dlId}" placeholder="值（可选/自填）">
-        ${dlHtml}
+        <input class="v" data-srv="${i}:${j}" value="${esc(r[1])}" placeholder="值（点击选候选/自填）" autocomplete="off">
         <button class="del" data-rmsr="${i}:${j}" title="删除参数">✕</button>
       </div>`;
     }).join("");
@@ -2772,10 +2801,9 @@ function renderItems(){
   box.querySelectorAll("[data-srk]").forEach(inp=> inp.oninput=()=>{
     const [i,j]=inp.dataset.srk.split(":").map(Number);
     items[i].specRows[j][0]=inp.value; items[i].spec=rowsToText(items[i].specRows); saveOverride(items[i]); addSpecKey(inp.value); renderPreview(); persistAll();
-    // 参数名改动后，本行候选下拉同步切换
-    const dl=document.getElementById(`dl-sr-${i}-${j}`);
-    if(dl) dl.innerHTML=specValCands(inp.value).map(v=>`<option value="${esc(v)}">`).join("");
-    refreshSpecValDl(inp.value);
+    // 参数名改动后：若该行候选下拉正开着，立即按新参数名刷新
+    const vInp=document.querySelector(`[data-srv="${i}:${j}"]`);
+    if(vInp && specDD && specDD._for===vInp) openSpecDD(vInp);
   });
   box.querySelectorAll("[data-srv]").forEach(inp=> inp.oninput=()=>{
     const [i,j]=inp.dataset.srv.split(":").map(Number);
@@ -2783,6 +2811,7 @@ function renderItems(){
   });
   // 失焦时强制智能去重：同名参数/跨列重复自动合并
   box.querySelectorAll("[data-srk],[data-srv]").forEach(inp=> inp.onchange=()=>{
+    closeSpecDD();
     const i=+(inp.dataset.srk||inp.dataset.srv).split(":")[0];
     dedupeItemSmart(items[i]); saveOverride(items[i]); renderItems(); persistAll(); renderPreview();
   });
@@ -4013,12 +4042,29 @@ function ingestCatalogText(text, src){
 /* ---------- events ---------- */
 function bind(){
   $("search").addEventListener("input",e=>renderSuggest(e.target.value));
-  // 参数值聚焦时，按该行参数名填充候选下拉（管理员模板多候选 + 内置选项）
+  /* 参数值自定义下拉：点击/聚焦显示全部候选，输入时过滤，点选写入 */
+  if(!document.getElementById("specdd-style")){
+    const st=document.createElement("style"); st.id="specdd-style";
+    st.textContent=".specdd{position:fixed;z-index:99999;background:#fff;border:1px solid #d0d5dd;border-radius:8px;box-shadow:0 8px 24px rgba(16,24,40,.18);max-height:240px;overflow:auto;padding:4px;font-size:13px;color:#1a1a1a}.specdd-i{padding:7px 12px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.specdd-i:hover{background:#eef4ff}.specdd-e{padding:7px 12px;color:#999}";
+    document.head.appendChild(st);
+  }
   $("items").addEventListener("focusin",e=>{
-    const inp=e.target.closest("[data-srv]"); if(!inp) return;
-    const kv=inp.closest(".kv"); const kEl=kv?kv.querySelector(".k"):null;
-    refreshSpecValDl(kEl?kEl.value:"");
+    const inp=e.target.closest("input[data-srv]"); if(!inp) return;
+    inp.dataset.ddtyped="0"; openSpecDD(inp);
   });
+  $("items").addEventListener("click",e=>{
+    const inp=e.target.closest("input[data-srv]"); if(!inp) return;
+    inp.dataset.ddtyped="0"; openSpecDD(inp);
+  });
+  $("items").addEventListener("input",e=>{
+    const inp=e.target.closest("input[data-srv]"); if(!inp) return;
+    inp.dataset.ddtyped="1"; openSpecDD(inp);
+  });
+  document.addEventListener("mousedown",e=>{
+    if(specDD && !specDD.contains(e.target) && !(e.target.closest && e.target.closest("input[data-srv]"))) closeSpecDD();
+  });
+  window.addEventListener("resize",closeSpecDD);
+  window.addEventListener("scroll",e=>{ if(specDD && e.target!==specDD) closeSpecDD(); },true);
   document.addEventListener("click",e=>{ if(!e.target.closest(".searchbox")) $("suggest").style.display="none"; });
   $("addBatch").onclick=()=>addBatch($("batchInput").value);
   $("batchInput").addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); addBatch($("batchInput").value); } });
@@ -5158,7 +5204,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=124').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=125').catch(function(e){ /* offline not critical */ });
     });
   }
 
