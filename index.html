@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v130</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v131</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -281,6 +281,7 @@
         <button class="btn sm" id="addBatch">＋ 批量添加</button>
         <button class="btn sm ghost" id="addCustom">+ 自定义空白行</button>
         <button class="btn sm ghost" id="clearItems">清空清单</button>
+        <button class="btn sm ghost" id="syncDbBtn" title="v131：把清单里每个型号的参数表/包装参数刷新为后台资料库最新值（数量/单价/图片不变）">⇩ 全部同步后台参数</button>
       </div>
       <div id="items" style="margin-top:10px"></div>
     </div>
@@ -1467,6 +1468,26 @@ function applyState(state, withDb){
       }
     }catch(e){}
   });
+  // v131：后台资料库更新 → 前端自动同步。只同步「参数与基线一致（未手动改过）」的条目；
+  // 手动改过参数的条目不受影响（可用「↻ 后台参数」按钮手动刷新）。
+  try{
+    if(state[DB_KEY]){
+      let auto=0;
+      items.forEach(it=>{
+        if(!it||!it.model) return;
+        if(!it._dbSig) it._dbSig=JSON.stringify(it.specRows||[]); // 旧条目补记基线
+        const p=effProduct(it.model); if(!p) return;
+        const nb=JSON.stringify(dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p))));
+        if(nb!==it._dbSig && JSON.stringify(it.specRows)===it._dbSig){
+          it.specRows=JSON.parse(nb); it.spec=rowsToText(it.specRows);
+          try{ it.pack=rowsToText(buildPackRows(p)); }catch(e){}
+          it._dbSig=nb; try{ saveOverride(it); }catch(e){}
+          auto++;
+        }
+      });
+      if(auto) syncBadge("⇩ 已自动同步 "+auto+" 个型号的后台最新参数");
+    }
+  }catch(e){}
   renderItems(); renderPreview(); refreshDbInfo();
 }
 let _pushTimer=null;
@@ -2626,6 +2647,7 @@ async function addItem(model){
     packing: p?(p.packing||""):"", moq: p?(p.moq||""):"", qty: p? (parseMoq(p.moq)||200):1, price: price
   });
   dedupeItemSmart(items[items.length-1]); // 强制智能去重（规格/包装跨列）
+  items[items.length-1]._dbSig=JSON.stringify(items[items.length-1].specRows); // v131：记录后台参数基线，用于后台更新后自动同步
   // new model not in built-in library -> register into local DB for next time
   if(model && !PROD_MAP[model] && !DB.custom[model]){
     DB.custom[model] = {model:model, category:"自定义", brand:"本地", moq:(p&&p.moq)||""};
@@ -2633,6 +2655,30 @@ async function addItem(model){
   }
   renderItems(); persistAll(); renderPreview();
   setTimeout(()=>{ try{ renderPreview(); }catch(e){} },120); // 兜底：确保新型号立即出现在预览
+}
+/* ---------- v131：后台资料库更新 → 前端条目同步 ----------
+   彻底修复「后台改了参数、前端报价条目不更新」：单条刷新 / 批量同步 / 未手动改动过的条目自动同步 */
+function refreshItemFromDb(it){
+  if(!it||!it.model) return false;
+  const p=effProduct(it.model); if(!p) return false;
+  const rows=dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p)));
+  if(!rows.length) return false;
+  it.specRows=rows; it.spec=rowsToText(rows);
+  try{ it.pack=rowsToText(buildPackRows(p)); }catch(e){}
+  if(p.packing) it.packing=p.packing;
+  if(p.moq) it.moq=p.moq;
+  it._dbSig=JSON.stringify(rows);
+  return true;
+}
+function syncAllItemsFromDb(){
+  let n=0, skip=0;
+  items.forEach(it=>{
+    if(!it.model) return;
+    if(!effProduct(it.model)){ skip++; return; }
+    if(refreshItemFromDb(it)){ saveOverride(it); n++; }
+  });
+  renderItems(); persistAll(); renderPreview();
+  alert("已同步 "+n+" 个型号的参数表/包装参数为后台最新值。"+(skip?("（"+skip+" 个型号不在资料库，跳过）"):"")+"\n\n提示：后台再次更新参数后，点本按钮即可刷新；数量/单价/图片不受影响。");
 }
 function parseMoq(s){ if(!s) return 0; const m=String(s).match(/(\d+)/); return m?parseInt(m[1]):0; }
 
@@ -2781,6 +2827,7 @@ function renderItems(){
       <div class="speclibrow">
         <button class="btn sm ghost" data-addsr="${i}">＋ 加参数</button>
         <button class="btn sm ghost" data-libopen="${i}">📚 常用参数</button>
+        <button class="btn sm ghost" data-dbref="${i}" title="v131：用后台资料库最新参数覆盖本条参数表/包装参数（数量、单价、图片不变）">↻ 后台参数</button>
       </div>
       <div class="speclibpick" id="libpick-${i}" style="display:none"></div>
       <div class="field" style="margin:6px 0 0"><label>包装参数 Packing（箱规/毛净重/盒规，可改）</label><textarea data-pack="${i}" rows="4">${esc(it.pack||"")}</textarea></div>
@@ -2851,6 +2898,15 @@ function renderItems(){
   box.querySelectorAll("[data-addsr]").forEach(b=> b.onclick=()=>{
     const i=+b.dataset.addsr; items[i]._open=true; items[i].specRows.push(["",""]); saveOverride(items[i]); renderItems(); persistAll(); renderPreview();
     const vs=box.querySelectorAll(`[data-srv="${i}:${items[i].specRows.length-1}"]`); if(vs[0]) vs[0].focus();
+  });
+  // v131：单条「↻ 后台参数」——用后台资料库最新参数覆盖本条（数量/单价/图片不变）
+  box.querySelectorAll("[data-dbref]").forEach(b=> b.onclick=()=>{
+    const i=+b.dataset.dbref, it=items[i];
+    if(!it) return;
+    if(!it.model){ alert("请先填写型号，再刷新后台参数。"); return; }
+    if(!confirm("用后台资料库最新参数覆盖「"+it.model+"」的参数表和包装参数？\n（数量、单价、图片不变；手动改过的参数也会被后台值覆盖）")) return;
+    if(refreshItemFromDb(it)){ saveOverride(it); renderItems(); persistAll(); renderPreview(); }
+    else alert("资料库里找不到「"+it.model+"」的参数，无法刷新。");
   });
   box.querySelectorAll("[data-libopen]").forEach(b=> b.onclick=()=>{
     const i=+b.dataset.libopen;
@@ -4096,6 +4152,11 @@ function bind(){
   window.addEventListener("scroll",e=>{ if(specDD && e.target!==specDD) closeSpecDD(); },true);
   document.addEventListener("click",e=>{ if(!e.target.closest(".searchbox")) $("suggest").style.display="none"; });
   $("addBatch").onclick=()=>addBatch($("batchInput").value);
+  $("syncDbBtn").onclick=()=>{
+    if(!items.length){ alert("清单为空。"); return; }
+    if(!confirm("把清单里所有型号的参数表/包装参数刷新为后台资料库最新值？\n（数量、单价、图片不变；手动改过的参数也会被后台值覆盖）")) return;
+    syncAllItemsFromDb();
+  };
   $("batchInput").addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); addBatch($("batchInput").value); } });
   $("imgFile").addEventListener("change",e=>{
     const f=e.target.files[0];
@@ -5233,7 +5294,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=130').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=131').catch(function(e){ /* offline not critical */ });
     });
   }
 
