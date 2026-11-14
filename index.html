@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v133</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v134</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -1468,26 +1468,8 @@ function applyState(state, withDb){
       }
     }catch(e){}
   });
-  // v131：后台资料库更新 → 前端自动同步。只同步「参数与基线一致（未手动改过）」的条目；
-  // 手动改过参数的条目不受影响（可用「↻ 后台参数」按钮手动刷新）。
-  try{
-    if(state[DB_KEY]){
-      let auto=0;
-      items.forEach(it=>{
-        if(!it||!it.model) return;
-        if(!it._dbSig) it._dbSig=JSON.stringify(it.specRows||[]); // 旧条目补记基线
-        const p=effProduct(it.model); if(!p) return;
-        const nb=JSON.stringify(dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p))));
-        if(nb!==it._dbSig && JSON.stringify(it.specRows)===it._dbSig){
-          it.specRows=JSON.parse(nb); it.spec=rowsToText(it.specRows);
-          try{ it.pack=rowsToText(buildPackRows(p)); }catch(e){}
-          it._dbSig=nb; try{ saveOverride(it); }catch(e){}
-          auto++;
-        }
-      });
-      if(auto) syncBadge("⇩ 已自动同步 "+auto+" 个型号的后台最新参数");
-    }
-  }catch(e){}
+  // v131/v134：后台资料库更新 → 前端自动同步（提取为 autoSyncItemsFromDb，mergeCloudDb 也调用）
+  try{ if(state[DB_KEY]) autoSyncItemsFromDb(); }catch(e){}
   renderItems(); renderPreview(); refreshDbInfo();
 }
 let _pushTimer=null;
@@ -1497,15 +1479,25 @@ async function mergeCloudDb(){
     const { data: st } = await cloud.database.from("quotation_state").select("data, updated_at").eq("workspace_id", WS_ID).maybeSingle();
     if(st && st.data && st.data[DB_KEY]){
       const cdb=st.data[DB_KEY]||{};
-      const merged={ custom:Object.assign({},DB.custom,cdb.custom||{}), overrides:Object.assign({},DB.overrides,cdb.overrides||{}), specLib:(cdb.specLib&&cdb.specLib.length)?cdb.specLib:(DB.specLib||[]), specCands:(cdb.specCands&&cdb.specCands.length)?cdb.specCands:(DB.specCands||[]) };
+      // v134：云端资料库是唯一权威——custom/overrides 一律整体替换。
+      // 旧逻辑 Object.assign 会保留「云端没有的本地键」，导致本地历史脏数据
+      //（如多候选参数覆盖）永远复活，后台清理结果反复被本地旧页覆盖。
+      const merged={
+        custom: (cdb.custom&&typeof cdb.custom==="object")? cdb.custom : {},
+        overrides: (cdb.overrides&&typeof cdb.overrides==="object")? cdb.overrides : {},
+        specLib:(cdb.specLib&&cdb.specLib.length)?cdb.specLib:(DB.specLib||[]),
+        specCands:(cdb.specCands&&cdb.specCands.length)?cdb.specCands:(DB.specCands||[])
+      };
       // 图片独立通道：云端图片优先覆盖；本机有而云端没有的图保留
       const localImgs=loadJSON(DBIMG_KEY,null)||{};
       const cimg=st.data[DBIMG_KEY]||{};
       Object.keys(localImgs).forEach(m=>{ const t=merged.overrides[m]=merged.overrides[m]||{}; if(!t.img) t.img=localImgs[m]; });
       Object.keys(cimg).forEach(m=>{ const t=merged.overrides[m]=merged.overrides[m]||{}; t.img=cimg[m]; });
       if(JSON.stringify(merged)!==JSON.stringify(DB)){
-        DB=merged; saveDB_noPush(); renderItems(); renderPreview(); refreshDbInfo();
+        DB=merged; saveDB_noPush();
         syncBadge("资料库已自动同步云端最新（含图片）");
+        try{ autoSyncItemsFromDb(); }catch(e){} // v134：资料库更新后未手动改过的条目立即跟上
+        renderItems(); renderPreview(); refreshDbInfo();
         return true;
       }
     }
@@ -2656,19 +2648,79 @@ async function addItem(model){
   renderItems(); persistAll(); renderPreview();
   setTimeout(()=>{ try{ renderPreview(); }catch(e){} },120); // 兜底：确保新型号立即出现在预览
 }
-/* ---------- v131：后台资料库更新 → 前端条目同步 ----------
+/* ---------- v131/v134：后台资料库更新 → 前端条目同步 ----------
    彻底修复「后台改了参数、前端报价条目不更新」：单条刷新 / 批量同步 / 未手动改动过的条目自动同步 */
+// v134：候选串净化——参数值若为「多候选拼接串」（整串每一段都在该参数的候选池中）只保留第一个候选；
+// 并清理尾部脏标点（，、;；）。这是模板多候选时代遗留污染的最后防线。
+function scrubSpecValues(it){
+  if(!it||!Array.isArray(it.specRows)) return false;
+  let ch=false;
+  it.specRows.forEach(r=>{
+    if(!r||!r[0]||!r[1]) return;
+    let cands=null;
+    try{ cands=specValCands(r[0]); }catch(e){ cands=[]; }
+    const raw=String(r[1]);
+    let v=raw;
+    if(cands&&cands.length>=2){
+      const segs=raw.split(/[、|｜;；]/).map(s=>s.trim()).filter(Boolean);
+      if(segs.length>=2){
+        const hit=segs.filter(s=>cands.indexOf(s)>=0).length;
+        if(hit===segs.length){ v=segs[0]; } // 整串都是候选拼接 → 只留第一个
+      }
+    }
+    v=v.replace(/[、，,;；|]+\s*$/,"").trim();
+    if(v!==raw){ r[1]=v; ch=true; }
+  });
+  return ch;
+}
 function refreshItemFromDb(it){
   if(!it||!it.model) return false;
   const p=effProduct(it.model); if(!p) return false;
-  const rows=dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p)));
+  const dbRows=dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p)));
+  if(!dbRows.length) return false;
+  // v134：保留「模板/手动添加且资料库没有」的参数行（电机类型/保修等），其余以资料库为准
+  const dbKeys=new Set(dbRows.map(r=>normSpecKey(r[0])));
+  let poolNames=null;
+  try{ poolNames=new Set((DB.specCands||[]).map(r=>normSpecKey(r&&r[0]))); }catch(e){ poolNames=new Set(); }
+  const keep=[];
+  (it.specRows||[]).forEach(r=>{
+    if(!r||!Array.isArray(r)||!r[0]) return;
+    const nk=normSpecKey(r[0]);
+    if(!nk||dbKeys.has(nk)) return;              // 无名行/资料库权威行：不保留旧值
+    const syn=(typeof SPEC_NAME_SYN!=="undefined")&&SPEC_NAME_SYN[nk];
+    const inPool=poolNames.has(nk)||(syn&&poolNames.has(normSpecKey(syn)));
+    if(inPool&&String(r[1]||"").trim()) keep.push([r[0],String(r[1]).replace(/[、，,;；|]+\s*$/,"").trim()]);
+  });
+  const rows=dedupeSpecRows(specOrderVoltageFirst(dbRows.concat(keep)));
   if(!rows.length) return false;
   it.specRows=rows; it.spec=rowsToText(rows);
   try{ it.pack=rowsToText(buildPackRows(p)); }catch(e){}
   if(p.packing) it.packing=p.packing;
   if(p.moq) it.moq=p.moq;
-  it._dbSig=JSON.stringify(rows);
+  it._dbSig=JSON.stringify(dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p))));
   return true;
+}
+// 自动同步：只同步「参数与基线一致（未手动改过）」的条目；手动改过的不动（可用「↻ 后台参数」手动刷新）
+function autoSyncItemsFromDb(){
+  let auto=0, scrubbedAny=false;
+  items.forEach(it=>{
+    if(!it||!it.model) return;
+    let scrubbed=false; try{ scrubbed=scrubSpecValues(it); }catch(e){}
+    if(scrubbed){ scrubbedAny=true; try{ saveOverride(it); }catch(e){} }
+    if(!it._dbSig) it._dbSig=JSON.stringify(it.specRows||[]); // 旧条目补记基线
+    const p=effProduct(it.model); if(!p) return;
+    const nb=JSON.stringify(dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p))));
+    let untouched=(JSON.stringify(it.specRows)===it._dbSig);
+    if(!untouched&&scrubbed){
+      try{ const tmp={specRows:JSON.parse(it._dbSig)}; scrubSpecValues(tmp); untouched=(JSON.stringify(it.specRows)===JSON.stringify(tmp.specRows)); }catch(e){}
+    }
+    if(nb!==it._dbSig && untouched){
+      if(refreshItemFromDb(it)){ try{ saveOverride(it); }catch(e){} auto++; }
+    }
+  });
+  if(auto) syncBadge("⇩ 已自动同步 "+auto+" 个型号的后台最新参数");
+  if(auto||scrubbedAny){ persistAll(); renderItems(); renderPreview(); }
+  return auto;
 }
 function syncAllItemsFromDb(){
   let n=0, skip=0;
@@ -5294,7 +5346,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=133').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=134').catch(function(e){ /* offline not critical */ });
     });
   }
 
