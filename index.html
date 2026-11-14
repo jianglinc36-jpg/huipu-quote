@@ -2798,7 +2798,7 @@ function specGroupKey(name){ const k=normSpecKey(name); return k? _synFind(k):""
 /* ---------- v136：后台「固定参数模板」为唯一权威 ----------
    ① 下拉候选实时读取模板（不再依赖云端候选池同步是否成功）
    ② 报价条目参数行按模板结构重建（旧的不规范参数一律清零），装箱信息绝不触碰 */
-var TPL_SET=null;   // 后台 huipu_sys_v1.settings
+var TPL_SET=(function(){ try{ var c=loadJSON("huipu_tpl_cache_v1",null); return (c&&Array.isArray(c.dbTemplates))? c : null; }catch(e){ return null; } })();   // 后台 huipu_sys_v1.settings（带本机缓存兜底）
 function tplList(){ return (TPL_SET&&Array.isArray(TPL_SET.dbTemplates))?TPL_SET.dbTemplates:[]; }
 function tplDefault(){
   const L=tplList(); if(!L.length) return null;
@@ -5394,6 +5394,7 @@ async function pv90SyncSys(){
     const st=(r.data&&r.data.data)||{};
     const sys=st["huipu_sys_v1"]||{};
     TPL_SET=sys.settings||null; // v136：后台模板（下拉候选 + 参数行重建的唯一来源）
+    try{ if(TPL_SET&&Array.isArray(TPL_SET.dbTemplates)) saveJSON("huipu_tpl_cache_v1",TPL_SET); }catch(e){}
     pv90ApplyFeatures(sys.features||{});
     try{
       // v136：模板拿到后，等清单加载完成再按模板重建一次（最多等 12 秒，避免时序问题）
