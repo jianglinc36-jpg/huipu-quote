@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=120').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=121').catch(function () {});
     });
   }
 </script>
@@ -960,7 +960,23 @@ function openTemplate(){
     var t2=readTplInputs();
     SYS.settings=SYS.settings||{};
     SYS.settings.dbTemplate=t2;
-    try{ await saveSys(); closeModal(); badge("固定参数模板已保存 ✓（新增产品自动带入）",true); }catch(e){ alert("保存失败："+(e.message||e)); }
+    // 参数候选池写入资料库（DB.specCands），员工端报价软件参数值下拉可直接选取
+    var pool={};
+    (t2.spec||[]).concat(t2.customFields||[]).forEach(function(r){
+      if(!r[0]) return;
+      var nm=String(r[0]).trim(); if(!nm) return;
+      String(r[1]==null?"":r[1]).split(/[、|｜;；]/).forEach(function(s){
+        s=s.trim(); if(!s) return;
+        if(!pool[nm]) pool[nm]=[];
+        if(pool[nm].indexOf(s)<0) pool[nm].push(s);
+      });
+    });
+    DB.specCands=Object.keys(pool).map(function(k){ return [k,pool[k]]; });
+    try{
+      await saveSys();
+      if(DB.specCands.length) await saveDb();
+      closeModal(); badge("固定参数模板已保存 ✓（新增产品自动带入；候选值已同步报价软件）",true);
+    }catch(e){ alert("保存失败："+(e.message||e)); }
   };
   $("tpApply").onclick=async function(){
     var ms=selectedModels();
