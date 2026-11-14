@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=122').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=123').catch(function () {});
     });
   }
 </script>
@@ -924,6 +924,36 @@ function readTplInputs(){
   return {fields:fields,customFields:custom,spec:spec};
 }
 var _tplIdx=0;
+// 固定字段/自定义字段/规格参数里的多候选值统一处理：
+// 收割进候选池（合并进 DB.specCands），模板与产品字段只保留第一个值
+function tplPoolFrom(t2){
+  var pool={};
+  var add=function(nm,v){ if(!nm||!v) return; if(!pool[nm]) pool[nm]=[]; if(pool[nm].indexOf(v)<0) pool[nm].push(v); };
+  var split=function(v){ return String(v==null?"":v).split(/[、|｜;；]/).map(function(s){return s.trim();}).filter(Boolean); };
+  Object.keys(t2.fields||{}).forEach(function(k){
+    var ps=split(t2.fields[k]);
+    if(ps.length>1){ ps.forEach(function(s){ add(k,s); }); t2.fields[k]=ps[0]; }
+  });
+  (t2.customFields||[]).forEach(function(r){
+    var ps=split(r[1]);
+    if(ps.length>1){ ps.forEach(function(s){ add(r[0],s); }); r[1]=ps[0]; }
+  });
+  (t2.spec||[]).forEach(function(r){
+    var ps=split(r[1]);
+    if(ps.length>1){ ps.forEach(function(s){ add(r[0],s); }); r[1]=ps[0]; }
+  });
+  return pool;
+}
+function mergePool(pool){
+  if(!Object.keys(pool).length) return;
+  var old={};
+  (DB.specCands||[]).forEach(function(r){ if(r&&r[0]) old[String(r[0]).trim()]=(r[1]||[]).slice(); });
+  Object.keys(pool).forEach(function(k){
+    if(!old[k]) old[k]=[];
+    pool[k].forEach(function(v){ if(old[k].indexOf(v)<0) old[k].push(v); });
+  });
+  DB.specCands=Object.keys(old).map(function(k){ return [k,old[k]]; });
+}
 function tplList(){
   var S=SYS.settings=SYS.settings||{};
   if(!Array.isArray(S.dbTemplates)||!S.dbTemplates.length){
@@ -986,6 +1016,7 @@ function openTemplate(){
   $("tplSaveAs").onclick=async function(){
     var nm=prompt("新模板名称：", list[_tplIdx].name+" 副本"); if(!nm||!nm.trim()) return;
     var t2=readTplInputs();
+    tplPoolFrom(t2); // 多候选值同样只保留第一个进模板
     list.push({name:nm.trim(),fields:t2.fields,customFields:t2.customFields,spec:t2.spec});
     _tplIdx=list.length-1;
     try{ await saveSys(); badge("已保存新模板「"+nm.trim()+"」 ✓",true); openTemplate(); }catch(e){ alert("保存失败："+(e.message||e)); }
@@ -1004,24 +1035,16 @@ function openTemplate(){
   };
   $("tpSave").onclick=async function(){
     var t2=readTplInputs();
+    // 固定字段里的多候选值（、分隔）：收割进候选池，模板字段只保留第一个值
+    var pool=tplPoolFrom(t2);
     list[_tplIdx].fields=t2.fields; list[_tplIdx].customFields=t2.customFields; list[_tplIdx].spec=t2.spec;
     // 默认模板同时写入旧字段（兼容新增产品预填）
     if(defaultTpl(list)===list[_tplIdx]) SYS.settings.dbTemplate={fields:t2.fields,customFields:t2.customFields,spec:t2.spec};
-    // 参数候选池写入资料库（DB.specCands），员工端报价软件参数值下拉可直接选取
-    var pool={};
-    (t2.spec||[]).concat(t2.customFields||[]).forEach(function(r){
-      if(!r[0]) return;
-      var nm=String(r[0]).trim(); if(!nm) return;
-      String(r[1]==null?"":r[1]).split(/[、|｜;；]/).forEach(function(s){
-        s=s.trim(); if(!s) return;
-        if(!pool[nm]) pool[nm]=[];
-        if(pool[nm].indexOf(s)<0) pool[nm].push(s);
-      });
-    });
-    DB.specCands=Object.keys(pool).map(function(k){ return [k,pool[k]]; });
+    // 候选池合并进资料库（DB.specCands），员工端报价软件参数值下拉可直接选取（合并不清掉其他模板的候选）
+    mergePool(pool);
     try{
       await saveSys();
-      if(DB.specCands.length) await saveDb();
+      if(DB.specCands&&DB.specCands.length) await saveDb();
       closeModal(); badge("模板「"+list[_tplIdx].name+"」已保存 ✓（候选值已同步报价软件）",true);
     }catch(e){ alert("保存失败："+(e.message||e)); }
   };
@@ -1029,6 +1052,9 @@ function openTemplate(){
     var ms=selectedModels();
     if(!ms.length){ alert("请先在资料库列表勾选要应用的产品，再打开本模板点「应用到勾选产品」"); return; }
     var t2=readTplInputs();
+    // 固定字段/规格参数里的多候选值：收割进候选池，产品只写第一个值（其余在报价软件下拉选取）
+    var pool=tplPoolFrom(t2);
+    mergePool(pool);
     // 模板值可能是多个候选（用「、」分隔）——应用到产品时取第一个作为默认值
     var extra=(t2.spec||[]).concat(t2.customFields||[]).map(function(r){ return [r[0],firstCandidate(r[1])]; });
     if(!Object.keys(t2.fields).length&&!extra.length){ alert("模板为空，没有可应用的内容"); return; }
