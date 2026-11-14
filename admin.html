@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=141', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=142', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v141</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v142</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -302,6 +302,12 @@ async function readState(){
 async function writeStateKeys(patch){
   var cur=await readState();
   var merged=Object.assign({},cur,patch);
+  // v142：候选池只增不减——与云端现有候选取并集后再写，防止本地旧池覆盖后台/前端新增的候选值
+  try{
+    if(merged[DB_KEY]&&cur[DB_KEY]){
+      merged[DB_KEY].specCands=unionSpecCandsAdmin(cur[DB_KEY].specCands, merged[DB_KEY].specCands);
+    }
+  }catch(e){}
   var ex=await cloud.database.from("quotation_state").select("workspace_id").eq("workspace_id",WS_ID).maybeSingle();
   if(ex.data){ var r=await cloud.database.from("quotation_state").update({data:merged,updated_at:new Date().toISOString()}).eq("workspace_id",WS_ID); if(r.error) throw r.error; }
   else { var r2=await cloud.database.from("quotation_state").insert({workspace_id:WS_ID,owner_id:ME.uid,data:merged,updated_at:new Date().toISOString()}); if(r2.error) throw r2.error; }
@@ -923,6 +929,22 @@ function batchWriteField(m,k,v){
   else { var ov2=DB.overrides[m]=DB.overrides[m]||{}; ov2[k]=v; }
 }
 function normSpecKey2(k){ return String(k||"").trim().toLowerCase().replace(/[\s:：]+/g,""); }
+// v142：候选池（specCands）只增不减——后台保存/前端上传都可能覆盖整池，统一并集合并
+function unionSpecCandsAdmin(a,b){
+  var out=[],idx={};
+  function addOne(arr){
+    (Array.isArray(arr)?arr:[]).forEach(function(r){
+      if(!r||!r[0]) return;
+      var k=normSpecKey2(r[0]);
+      if(!(k in idx)){ idx[k]=[r[0],[]]; out.push(idx[k]); }
+      var vs=Array.isArray(r[1])?r[1]:[r[1]];
+      vs.forEach(function(v){ var x=String(v==null?"":v).replace(/[、，,;；|]+\s*$/,"").trim();
+        if(x&&idx[k][1].indexOf(x)<0) idx[k][1].push(x); });
+    });
+  }
+  addOne(a); addOne(b);
+  return out;
+}
 /* ---------- 固定参数模板 ---------- */
 // 手写清单新增的常用固定字段（无内置产品字段对应，应用时并入规格参数）
 var TPL_EXTRA_FIELDS=["噪音","电机类型","电机寿命","过热保护","线长","认证","颜色","壁挂功能","保修"];
@@ -933,6 +955,27 @@ function tplFieldRowHtml(name,value){
    +'<input class="tpk" list="tplFieldNames" placeholder="字段名" value="'+esc(name)+'" style="width:160px;flex:none">'
    +'<input class="tpv" placeholder="固定值（留空=不固定）" value="'+esc(value)+'" style="flex:1;min-width:0">'
    +'<button type="button" class="btn sm danger tplDel" style="flex:none">删</button></div>';
+}
+// v142：模板编辑时把候选池里该参数的全部可选值一起显示（用「、」连接），
+// 修复「保存后多候选值被拆进候选池、重新打开只见一个」的困惑。保存时仍自动拆分收割。
+function tplPoolValsFor(names){
+  var out=[];
+  (Array.isArray(names)?names:[names]).forEach(function(nm){
+    var nk=normSpecKey2(nm); if(!nk) return;
+    (DB.specCands||[]).forEach(function(r){
+      if(!r||!r[0]||normSpecKey2(r[0])!==nk) return;
+      (Array.isArray(r[1])?r[1]:[r[1]]).forEach(function(v){
+        var x=String(v==null?"":v).trim();
+        if(x&&out.indexOf(x)<0) out.push(x);
+      });
+    });
+  });
+  return out;
+}
+function tplJoinVals(cur,names){
+  var all=String(cur==null?"":cur).split(/[、|｜;；]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  tplPoolValsFor(names).forEach(function(v){ if(all.indexOf(v)<0) all.push(v); });
+  return all.join("、");
 }
 function bindTplFieldRows(){
   document.querySelectorAll("#tpFieldRows .tplDel").forEach(function(b){ b.onclick=function(){ b.closest(".tplFieldRow").remove(); }; });
@@ -1009,17 +1052,17 @@ function openTemplate(){
   var rows=[];
   BATCH_FIELDS.forEach(function(f){
     var v=tf[f[0]]!=null?tf[f[0]]:"";
-    if(hasSaved){ if(v!=="") rows.push(tplFieldRowHtml(f[1],v)); } // 已存模板：只显示已固定的字段
+    if(hasSaved){ if(v!=="") rows.push(tplFieldRowHtml(f[1],tplJoinVals(v,[f[1],f[0]]))); } // 已存模板：只显示已固定的字段（含候选池全部可选值）
     else rows.push(tplFieldRowHtml(f[1],"")); // 首次打开：列出全部内置字段供挑选
   });
   TPL_EXTRA_FIELDS.forEach(function(n){
     var hit=tc.filter(function(r){ return r[0]===n; })[0];
-    if(hasSaved){ if(hit) rows.push(tplFieldRowHtml(n,hit[1])); }
+    if(hasSaved){ if(hit) rows.push(tplFieldRowHtml(n,tplJoinVals(hit[1],[n]))); }
     else rows.push(tplFieldRowHtml(n,""));
   });
   tc.forEach(function(r){ // 其余自定义字段（不在常用清单里的）
     if(TPL_EXTRA_FIELDS.indexOf(r[0])>=0) return;
-    rows.push(tplFieldRowHtml(r[0],r[1]));
+    rows.push(tplFieldRowHtml(r[0],tplJoinVals(r[1],[r[0]])));
   });
   var h='<h3>固定参数模板</h3>'
    +'<div class="hint" style="margin-bottom:6px">可保存多套模板（如 家用吹风机 / 壁挂式吹风机 / 高速吹风机 各一套）：下拉切换 → 修改 → 「保存模板」；「存为新模板」把当前内容另存一套；★默认模板用于「新增产品自动带入」。先在资料库列表勾选产品，再点「应用到勾选产品」一键套用。固定字段每行可删除（点「删」），点「＋ 添加字段」可加内置字段或自定义字段。</div>'
@@ -1034,7 +1077,7 @@ function openTemplate(){
    +'<div id="tpFieldRows">'+rows.join("")+'</div>'
    +'<button type="button" class="btn sm ghost" id="tpFieldAdd" style="margin-top:2px">＋ 添加字段</button>'
    +'<div style="margin:10px 0 4px"><b>固定规格参数</b> <span class="hint">（每行一条；同一参数要多个可选值，用「、」分隔，例如 110V、220V、240V —— 应用到产品时默认取第一个，编辑产品时可在下拉里切换）</span></div>'
-   +'<div id="tpSpecRows">'+(ts.length?ts.map(function(r){ return specRowHtml(r[0],r[1]); }).join(""):"")+'</div>'
+   +'<div id="tpSpecRows">'+(ts.length?ts.map(function(r){ return specRowHtml(r[0],tplJoinVals(r[1],[r[0]])); }).join(""):"")+'</div>'
    +'<button type="button" class="btn sm ghost" id="tpAdd" style="margin-top:6px">＋ 添加参数</button>'
    +'<div class="bar" style="margin-top:10px"><button class="btn" id="tpSave">保存模板</button><button class="btn" id="tpApply">应用到勾选产品</button><button class="btn ghost" id="tpCancel">关闭</button></div>'
    +'<div class="hint" style="margin-top:6px">「应用到勾选产品」规则：内置字段=模板非空项覆盖；自定义字段与规格参数=同名以模板为准、其余保留。</div>';
@@ -1379,7 +1422,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 141, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 142, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
