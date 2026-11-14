@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=140', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=141', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v140</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v141</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -1209,29 +1209,96 @@ function batchSetSpec(){
 function editProductImg(m){
   var cur=prodImg(m);
   openModal('<h3>产品图片 · '+esc(m)+'</h3>'
-    +'<div style="text-align:center;margin-bottom:10px">'+(cur?'<img src="'+cur+'" style="max-width:280px;max-height:280px;object-fit:contain">':'<div class="hint">暂无图片</div>')+'</div>'
+    +'<div id="pimgPrev" style="text-align:center;margin-bottom:10px">'+(cur?'<img src="'+cur+'" style="max-width:280px;max-height:280px;object-fit:contain">':'<div class="hint">暂无图片</div>')+'</div>'
     +'<div class="bar"><input type="file" id="pimgFile" accept="image/*"><button class="btn ghost" id="pimgClr">清除自定义图</button><button class="btn ghost" id="pimgCancel">关闭</button></div>'
-    +'<div class="hint">上传后自动压缩到合理尺寸并同步云端。</div>');
+    +'<div class="hint" id="pimgHint">点「选择文件」选图，或直接把图片<b>拖进本弹窗 / Ctrl+V 粘贴</b>。上传后自动压缩到合理尺寸并同步云端。</div>');
   $("pimgCancel").onclick=closeModal;
   $("pimgClr").onclick=async function(){ if(DB.overrides[m]) delete DB.overrides[m].img; try{ await saveDb(); closeModal(); showTab("db"); }catch(e){ alert(e.message||e); } };
-  $("pimgFile").onchange=function(){
-    var f=this.files[0]; if(!f) return;
-    var rd=new FileReader();
-    rd.onload=function(){
-      var im=new Image();
-      im.onload=async function(){
-        var W=Math.min(480,im.width), H=Math.round(im.height*W/im.width);
-        var c=document.createElement("canvas"); c.width=W; c.height=H;
-        c.getContext("2d").drawImage(im,0,0,W,H);
-        var url=c.toDataURL("image/jpeg",0.82);
-        if(!DB.overrides[m]) DB.overrides[m]={};
-        DB.overrides[m].img=url;
-        try{ await saveDb(); closeModal(); badge("图片已保存 ✓",true); showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
-      };
-      im.src=rd.result;
+
+  function setStatus(t,err){
+    var h=$("pimgHint"); if(h){ h.innerHTML=err?'<span style="color:#c0392b;font-weight:700">'+esc(t)+'</span>':esc(t); }
+    if(err) console.error("[图片上传] "+t);
+  }
+  async function saveImg(url,tag){
+    try{
+      setStatus("正在保存到云端…");
+      if(!DB.overrides[m]) DB.overrides[m]={};
+      DB.overrides[m].img=url;
+      await saveDb();
+      closeModal(); badge("图片已保存 ✓"+(tag?("（"+tag+"）"):""),true); showTab("db");
+    }catch(e){ setStatus("保存失败："+((e&&(e.message||e.error||JSON.stringify(e)))||e),true); alert("图片保存失败："+((e&&(e.message||e.error))||e)); }
+  }
+  // 压缩：最长边 ≤ maxSide；返回 dataURL。任何一步失败都会抛出可读错误
+  function compressTo(img,maxSide){
+    try{
+      if(!img.width||!img.height) throw new Error("图片尺寸读取失败（width/height 为 0），文件可能已损坏");
+      var sc=Math.min(1, maxSide/Math.max(img.width,img.height));
+      var W=Math.max(1,Math.round(img.width*sc)), H=Math.max(1,Math.round(img.height*sc));
+      var c=document.createElement("canvas"); c.width=W; c.height=H;
+      c.getContext("2d").drawImage(img,0,0,W,H);
+      var q=0.82,url;
+      do{ url=c.toDataURL("image/jpeg",q); q-=0.12; }while(url.length>260000&&q>0.3); // 保证云端 payload 可控
+      if(!url||url.length<64||url==="data:,") throw new Error("压缩后的图片数据为空（canvas 导出失败）");
+      return url;
+    }catch(e){ throw new Error("图片压缩失败："+(e.message||e)); }
+  }
+  function handleBlobOrDataUrl(src,tag){
+    // src: dataURL 或 objectURL
+    setStatus("正在解码图片…");
+    var im=new Image();
+    im.onload=async function(){
+      try{
+        setStatus("正在压缩图片…");
+        var url=compressTo(im,480);
+        await saveImg(url,tag);
+      }catch(e){ setStatus((e.message||e),true); alert(e.message||e); }
     };
-    rd.readAsDataURL(f);
+    im.onerror=function(){
+      var f=$("pimgFile")?$("pimgFile").files[0]:null;
+      var ft=f&&f.type?f.type:"未知";
+      setStatus("图片解码失败：浏览器不支持该格式（当前 "+ft+"）。iPhone 原图 HEIC、部分 TIF 等请先转成 JPG/PNG 再上传。",true);
+    };
+    im.src=src;
+  }
+  function handleFile(f){
+    try{
+      if(!f) return;
+      if(f.size>20*1024*1024){ setStatus("文件太大（"+Math.round(f.size/1048576)+"MB），请先压缩到 20MB 以内",true); return; }
+      setStatus("正在读取文件…");
+      var rd=new FileReader();
+      rd.onload=function(){ handleBlobOrDataUrl(rd.result, (f.type&&f.type.indexOf("image/")===0)?f.type.replace("image/","").toUpperCase():""); };
+      rd.onerror=function(){ setStatus("读取文件失败，请重试或换一张图片",true); };
+      rd.readAsDataURL(f);
+    }catch(e){ setStatus((e.message||e),true); alert("图片处理出错："+(e.message||e)); }
+  }
+  $("pimgFile").onchange=function(){
+    try{ handleFile(this.files&&this.files[0]); }catch(e){ setStatus((e.message||e),true); alert("图片处理出错："+(e.message||e)); }
+    this.value=""; // 允许再次选择同一文件
   };
+  window.__hpPimgActive=handleFile; // 拖拽/粘贴走当前弹窗对应型号
+  // 拖拽图片进弹窗 / Ctrl+V 粘贴图片（全局只绑一次，避免重复触发）
+  if(!window.__hpPimgBound){
+    window.__hpPimgBound=true;
+    var md=$("modalBox");
+    if(md){
+      md.addEventListener("dragover",function(e){ if($("modal")&&$("modal").style.display==="block"&&$("pimgFile")&&window.__hpPimgActive) e.preventDefault(); });
+      md.addEventListener("drop",function(e){
+        if(!($("modal")&&$("modal").style.display==="block")||!$("pimgFile")||!window.__hpPimgActive) return;
+        e.preventDefault();
+        var fs=e.dataTransfer&&e.dataTransfer.files;
+        if(fs&&fs.length) window.__hpPimgActive(fs[0]);
+      });
+    }
+    window.addEventListener("paste",function(e){
+      if(!($("modal")&&$("modal").style.display==="block")||!$("pimgFile")||!window.__hpPimgActive) return;
+      var items=(e.clipboardData||{}).items||[];
+      for(var i=0;i<items.length;i++){
+        if(items[i]&&items[i].type&&items[i].type.indexOf("image")===0){
+          var f=items[i].getAsFile(); if(f){ e.preventDefault(); window.__hpPimgActive(f); break; }
+        }
+      }
+    });
+  }
 }
 
 /* ---------- 功能开关 ---------- */
@@ -1312,7 +1379,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 140, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 141, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
