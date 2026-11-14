@@ -414,37 +414,21 @@ async function renderDash(M){
 
 /* ---------- 报价记录 ---------- */
 var _quoteFilter="";
-var _quoteFilterFocus=false; // v131b：同 dbSearch，重渲染后恢复焦点支持连续输入
+var _savesAll=null; // v132b：报价记录缓存，搜索时只重绘表格不动工具栏
 async function renderQuotes(M){
   var rows; try{ rows=await fetchSaves(); }catch(e){ M.innerHTML='<div class="err">加载失败：'+esc(e.message||e)+'</div>'; return; }
-  if(_quoteFilter) rows=rows.filter(function(r){ return (sumOf(r).customer||"").indexOf(_quoteFilter)>=0 || (r.title||"").indexOf(_quoteFilter)>=0; });
+  _savesAll=rows;
   var h='<div class="card"><div class="bar">'
     +'<input id="qSearch" placeholder="搜索客户 / 标题" style="width:200px" value="'+esc(_quoteFilter)+'">'
     +'<button class="btn sm" id="qNew">＋ 新建报价单</button>'
     +'<button class="btn ghost sm" id="qImport">📥 导入JSON为记录</button>'
     +'<input type="file" id="qImportFile" accept=".json" style="display:none">'
     +'<button class="btn danger sm" id="qDelSel" style="display:none">🗑 批量删除(<span id="qSelCnt">0</span>)</button>'
-    +'<span class="sp" style="flex:1"></span><span class="hint">'+rows.length+' 条</span>'
-    +'</div><div class="tblwrap"><table><thead><tr><th style="width:30px"><input type="checkbox" id="qSelAll" title="全选"></th><th>时间</th><th>成员</th><th class="l">标题</th><th class="l">客户</th><th>类型</th><th>项数</th><th>数量</th><th>金额</th><th>状态</th><th>操作</th></tr></thead><tbody>';
-  rows.forEach(function(r){
-    var s=sumOf(r);
-    var st=s.status==="archived"?'<span class="badge gray">已归档</span>':(s.status==="deleted"?'<span class="badge warn">已删除</span>':'<span class="badge">跟进中</span>');
-    h+='<tr><td><input type="checkbox" class="qch" value="'+r.id+'"></td><td>'+fmtDT(r.created_at)+'</td><td>'+esc(r.user_name||"")+'</td><td class="l">'+esc(r.title||"")+'</td><td class="l">'+esc(s.customer||"—")+'</td>'
-      +'<td>'+(s.type==="pi"?"PI":(s.type==="pdf"?"PDF":(s.type==="db"?"资料库":"报价单")))+'</td>'
-      +'<td>'+s.items+'</td><td>'+s.qty+'</td><td>'+money(s.amount)+'</td><td>'+st+'</td>'
-      +'<td style="white-space:nowrap">'
-      +'<button class="btn sm ghost" data-view="'+r.id+'">查看</button> '
-      +'<button class="btn sm ghost" data-copy="'+r.id+'">复制</button> '
-      +'<button class="btn sm warn" data-arc="'+r.id+'">'+(s.status==="archived"?"取消归档":"归档")+'</button> '
-      +'<button class="btn sm danger" data-del="'+r.id+'">删除</button>'
-      +'</td></tr>';
-  });
-  h+='</tbody></table></div></div>';
+    +'<span class="sp" style="flex:1"></span><span class="hint" id="qCntHint"></span>'
+    +'</div><div id="qTblWrap"></div></div>';
   M.innerHTML=h;
-  $("qSearch").oninput=function(){ _quoteFilter=this.value; _quoteFilterFocus=true; clearTimeout(renderQuotes._t); renderQuotes._t=setTimeout(function(){ showTab("quotes"); },350); };
-  $("qSearch").onfocus=function(){ _quoteFilterFocus=true; };
-  $("qSearch").onblur=function(){ _quoteFilterFocus=false; };
-  if(_quoteFilterFocus){ var _qsi=document.getElementById("qSearch"); if(_qsi){ _qsi.focus(); try{ _qsi.setSelectionRange(_qsi.value.length,_qsi.value.length); }catch(e){} } }
+  /* v132b：搜索框节点不再随重渲染销毁——输入时只刷新 #qTblWrap，可连续输入 */
+  $("qSearch").oninput=function(){ _quoteFilter=this.value; clearTimeout(renderQuotes._t); renderQuotes._t=setTimeout(renderQuotesTable,250); };
   $("qNew").onclick=function(){ openNewQuote(); };
   $("qImport").onclick=function(){ $("qImportFile").click(); };
   $("qImportFile").onchange=function(){
@@ -452,21 +436,6 @@ async function renderQuotes(M){
     rd.onload=async function(){ try{ var d=JSON.parse(rd.result); await insertQuoteRecord((d.title||("导入 "+new Date().toLocaleDateString())),d); badge("已导入为新记录 ✓",true); showTab("quotes"); }catch(e){ alert("导入失败："+(e.message||e)); } };
     rd.readAsText(f);
   };
-  M.querySelectorAll("[data-view]").forEach(function(b){ b.onclick=function(){ viewQuote(b.dataset.view); }; });
-  M.querySelectorAll("[data-copy]").forEach(function(b){ b.onclick=async function(){ if(!confirm("复制该条记录？")) return; await copyQuote(b.dataset.copy); }; });
-  M.querySelectorAll("[data-arc]").forEach(function(b){ b.onclick=async function(){ await arcQuote(b.dataset.arc); }; });
-  M.querySelectorAll("[data-del]").forEach(function(b){ b.onclick=async function(){ if(!confirm("⚠ 确定删除该条记录？此操作不可恢复！")) return; var r=await cloud.database.from("quotation_saves").delete().eq("id",b.dataset.del); if(r.error) alert("删除失败："+(r.error.message||r.error)); else { delete _quoteSel[b.dataset.del]; badge("已删除",true); showTab("quotes"); } }; });
-  // ---- 批量勾选 ----
-  var chs=M.querySelectorAll(".qch");
-  Array.prototype.forEach.call(chs,function(c){ if(_quoteSel[c.value]) c.checked=true; });
-  function pvQuoteSelSync(){
-    var n=0; Array.prototype.forEach.call(M.querySelectorAll(".qch"),function(c){ if(c.checked) n++; });
-    var btn=$("qDelSel"); if(btn){ btn.style.display=n>0?"":"none"; var c=$("qSelCnt"); if(c) c.textContent=n; }
-    var all=M.querySelectorAll(".qch"); var checked=M.querySelectorAll(".qch:checked");
-    var sa=$("qSelAll"); if(sa) sa.checked=(all.length>0 && checked.length===all.length);
-  }
-  M.querySelectorAll(".qch").forEach(function(c){ c.onchange=function(){ if(c.checked) _quoteSel[c.value]=true; else delete _quoteSel[c.value]; pvQuoteSelSync(); }; });
-  var saEl=$("qSelAll"); if(saEl) saEl.onchange=function(){ Array.prototype.forEach.call(M.querySelectorAll(".qch"),function(c){ c.checked=saEl.checked; if(c.checked) _quoteSel[c.value]=true; else delete _quoteSel[c.value]; }); pvQuoteSelSync(); };
   $("qDelSel").onclick=async function(){
     var ids=Object.keys(_quoteSel);
     if(!ids.length) return;
@@ -480,6 +449,46 @@ async function renderQuotes(M){
     badge("已删除 "+ok+" 条"+(fail?("，"+fail+" 条失败"):"")+" ✓", true);
     showTab("quotes");
   };
+  renderQuotesTable();
+}
+/* v132b：只重绘报价记录表格 */
+function renderQuotesTable(){
+  var wrap=document.getElementById("qTblWrap"); if(!wrap) return;
+  var rows=(_savesAll||[]);
+  if(_quoteFilter) rows=rows.filter(function(r){ return (sumOf(r).customer||"").indexOf(_quoteFilter)>=0 || (r.title||"").indexOf(_quoteFilter)>=0; });
+  var M=wrap;
+  var h='<div class="tblwrap"><table><thead><tr><th style="width:30px"><input type="checkbox" id="qSelAll" title="全选"></th><th>时间</th><th>成员</th><th class="l">标题</th><th class="l">客户</th><th>类型</th><th>项数</th><th>数量</th><th>金额</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    var s=sumOf(r);
+    var st=s.status==="archived"?'<span class="badge gray">已归档</span>':(s.status==="deleted"?'<span class="badge warn">已删除</span>':'<span class="badge">跟进中</span>');
+    h+='<tr><td><input type="checkbox" class="qch" value="'+r.id+'"></td><td>'+fmtDT(r.created_at)+'</td><td>'+esc(r.user_name||"")+'</td><td class="l">'+esc(r.title||"")+'</td><td class="l">'+esc(s.customer||"—")+'</td>'
+      +'<td>'+(s.type==="pi"?"PI":(s.type==="pdf"?"PDF":(s.type==="db"?"资料库":"报价单")))+'</td>'
+      +'<td>'+s.items+'</td><td>'+s.qty+'</td><td>'+money(s.amount)+'</td><td>'+st+'</td>'
+      +'<td style="white-space:nowrap">'
+      +'<button class="btn sm ghost" data-view="'+r.id+'">查看</button> '
+      +'<button class="btn sm ghost" data-copy="'+r.id+'">复制</button> '
+      +'<button class="btn sm warn" data-arc="'+r.id+'">'+(s.status==="archived"?"取消归档":"归档")+'</button> '
+      +'<button class="btn sm danger" data-del="'+r.id+'">删除</button>'
+      +'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  wrap.innerHTML=h;
+  var cnt=document.getElementById("qCntHint"); if(cnt) cnt.textContent=rows.length+' 条';
+  wrap.querySelectorAll("[data-view]").forEach(function(b){ b.onclick=function(){ viewQuote(b.dataset.view); }; });
+  wrap.querySelectorAll("[data-copy]").forEach(function(b){ b.onclick=async function(){ if(!confirm("复制该条记录？")) return; await copyQuote(b.dataset.copy); }; });
+  wrap.querySelectorAll("[data-arc]").forEach(function(b){ b.onclick=async function(){ await arcQuote(b.dataset.arc); }; });
+  wrap.querySelectorAll("[data-del]").forEach(function(b){ b.onclick=async function(){ if(!confirm("⚠ 确定删除该条记录？此操作不可恢复！")) return; var r=await cloud.database.from("quotation_saves").delete().eq("id",b.dataset.del); if(r.error) alert("删除失败："+(r.error.message||r.error)); else { delete _quoteSel[b.dataset.del]; badge("已删除",true); showTab("quotes"); } }; });
+  // ---- 批量勾选 ----
+  var chs=M.querySelectorAll(".qch");
+  Array.prototype.forEach.call(chs,function(c){ if(_quoteSel[c.value]) c.checked=true; });
+  function pvQuoteSelSync(){
+    var n=0; Array.prototype.forEach.call(document.querySelectorAll(".qch"),function(c){ if(c.checked) n++; });
+    var btn=$("qDelSel"); if(btn){ btn.style.display=n>0?"":"none"; var c=$("qSelCnt"); if(c) c.textContent=n; }
+    var all=document.querySelectorAll(".qch"); var checked=document.querySelectorAll(".qch:checked");
+    var sa=$("qSelAll"); if(sa) sa.checked=(all.length>0 && checked.length===all.length);
+  }
+  M.querySelectorAll(".qch").forEach(function(c){ c.onchange=function(){ if(c.checked) _quoteSel[c.value]=true; else delete _quoteSel[c.value]; pvQuoteSelSync(); }; });
+  var saEl=$("qSelAll"); if(saEl) saEl.onchange=function(){ Array.prototype.forEach.call(document.querySelectorAll(".qch"),function(c){ c.checked=saEl.checked; if(c.checked) _quoteSel[c.value]=true; else delete _quoteSel[c.value]; }); pvQuoteSelSync(); };
   pvQuoteSelSync();
 }
 function emptyQuoteData(){
@@ -685,8 +694,6 @@ async function renderMembers(M){
 
 /* ---------- 资料库 ---------- */
 var _dbSearch="";
-var _dbSearchFocus=false; // v131b：搜索框聚焦标记——重渲染后恢复焦点，否则每输一个字符就要重新点一次
-function _restoreSearchFocus(id){ if(!_dbSearchFocus) return; var si=document.getElementById(id); if(!si) return; si.focus(); try{ si.setSelectionRange(si.value.length,si.value.length); }catch(e){} }
 var _dbCat="";
 var PROD_CATS=["壁挂式吹风机","家用吹风机","高速吹风机","AC吹风机","造型器","折叠吹风机"];
 function renderDb(M){
@@ -694,16 +701,12 @@ function renderDb(M){
   var all={}; PRODUCTS.forEach(function(p){ all[p.model]=1; }); customs.forEach(function(m){ all[m]=1; }); ovs.forEach(function(m){ all[m]=1; });
   var isHid=function(m2){ var ov2=DB.overrides[m2]; return !!(ov2&&ov2._hidden); };
   var hiddenCnt=Object.keys(all).filter(isHid).length;
-  var models=Object.keys(all).filter(function(m){
-    if(isHid(m)) return false;
-    if(_dbSearch&&m.toLowerCase().indexOf(_dbSearch.toLowerCase())<0) return false;
-    if(_dbCat){ var pc=(effProduct(m)||{}).category||""; if(pc!==_dbCat) return false; }
-    return true;
-  }).sort();
   // 分类下拉：预设分类 + 资料库里已有的分类
   var catSet={}; PROD_CATS.forEach(function(c){ catSet[c]=1; });
   Object.keys(all).forEach(function(m){ if(isHid(m)) return; var pc=(effProduct(m)||{}).category; if(pc) catSet[pc]=1; });
   var catOpts=Object.keys(catSet).map(function(c){ return '<option value="'+esc(c)+'"'+(_dbCat===c?' selected':'')+'>'+esc(c)+'</option>'; }).join("");
+  /* v132b 结构性修复：工具栏（含搜索框）只建一次，输入时只刷新表格区 #dbTblWrap，
+     搜索框节点永不被销毁 → 焦点不丢，可连续输入 */
   var h='<div class="card"><div class="bar">'
     +'<input id="dbSearch" placeholder="搜索型号" style="width:180px" value="'+esc(_dbSearch)+'">'
     +'<select id="dbCat" style="width:150px"><option value="">全部类别</option>'+catOpts+'</select>'
@@ -712,10 +715,34 @@ function renderDb(M){
     +'<button class="btn sm ghost" id="dbBatchEdit">批量修改参数</button>'
     +'<button class="btn sm ghost" id="dbBatchSpec">批量设定规格参数</button>'
     +'<button class="btn sm" id="dbTpl">固定参数模板</button>'
-    +'<span class="hint">内置 '+PRODUCTS.length+' · 自定义 '+customs.length+' · 有覆盖 '+ovs.length+' · 当前显示 '+models.length+'</span>'
+    +'<span class="hint" id="dbCntHint"></span>'
     +'<span style="flex:1"></span><span class="hint">先勾选产品，再用上面的批量按钮 · 改动保存后员工端打开报价软件即自动同步</span></div>';
   if(hiddenCnt) h+='<div class="hint" style="margin-top:6px">已隐藏 '+hiddenCnt+' 个内置产品（批量删除所致，仍在报价软件历史报价中可用） <button class="btn sm ghost" id="dbUnhide">还原全部隐藏</button></div>';
-  h+='<div class="tblwrap"><table><thead><tr><th style="width:34px"><input type="checkbox" id="dbSelAll" title="全选/全不选"></th><th>图</th><th class="l">型号</th><th class="l">类别</th><th>功率/电压</th><th>装箱量</th><th>底价RMB</th><th>底价USD</th><th>来源</th><th>操作</th></tr></thead><tbody>';
+  h+='<div id="dbTblWrap"></div></div>';
+  M.innerHTML=h;
+  $("dbSearch").oninput=function(){ _dbSearch=this.value; clearTimeout(renderDb._t); renderDb._t=setTimeout(renderDbTable,250); };
+  $("dbCat").onchange=function(){ _dbCat=this.value; renderDbTable(); };
+  $("dbAdd").onclick=function(){ editProduct("",true); };
+  $("dbBatchDel").onclick=batchDeleteSel;
+  $("dbBatchEdit").onclick=batchEditFields;
+  $("dbBatchSpec").onclick=batchSetSpec;
+  $("dbTpl").onclick=openTemplate;
+  var uh=$("dbUnhide"); if(uh) uh.onclick=async function(){ Object.keys(DB.overrides).forEach(function(m){ if(DB.overrides[m]&&DB.overrides[m]._hidden) delete DB.overrides[m]._hidden; }); try{ await saveDb(); showTab("db"); }catch(e){ alert(e.message||e); } };
+  renderDbTable();
+}
+/* v132b：只重绘资料库表格（搜索/分类筛选在此生效，不动工具栏） */
+function renderDbTable(){
+  var wrap=document.getElementById("dbTblWrap"); if(!wrap) return;
+  var customs=Object.keys(DB.custom||{}), ovs=Object.keys(DB.overrides||{}).filter(function(m){ return Object.keys(DB.overrides[m]).some(function(k){return k!=="img";}); });
+  var all={}; PRODUCTS.forEach(function(p){ all[p.model]=1; }); customs.forEach(function(m){ all[m]=1; }); ovs.forEach(function(m){ all[m]=1; });
+  var isHid=function(m2){ var ov2=DB.overrides[m2]; return !!(ov2&&ov2._hidden); };
+  var models=Object.keys(all).filter(function(m){
+    if(isHid(m)) return false;
+    if(_dbSearch&&m.toLowerCase().indexOf(_dbSearch.toLowerCase())<0) return false;
+    if(_dbCat){ var pc=(effProduct(m)||{}).category||""; if(pc!==_dbCat) return false; }
+    return true;
+  }).sort();
+  var h='<div class="tblwrap"><table><thead><tr><th style="width:34px"><input type="checkbox" id="dbSelAll" title="全选/全不选"></th><th>图</th><th class="l">型号</th><th class="l">类别</th><th>功率/电压</th><th>装箱量</th><th>底价RMB</th><th>底价USD</th><th>来源</th><th>操作</th></tr></thead><tbody>';
   models.forEach(function(m){
     var p=effProduct(m); if(!p) return;
     var src=p._src==="custom"?'<span class="badge">自定义</span>':(p._src==="override"?'<span class="badge warn">已改</span>':'<span class="badge gray">内置</span>');
@@ -728,28 +755,19 @@ function renderDb(M){
      +'<td style="white-space:nowrap"><button class="btn sm ghost" data-e="'+esc(m)+'">编辑</button> <button class="btn sm ghost" data-img="'+esc(m)+'">图片</button> '
      +'<button class="btn sm danger" data-d="'+esc(m)+'">'+(p._src==="custom"?"删除":"还原")+'</button></td></tr>';
   });
-  h+='</tbody></table></div></div>';
-  M.innerHTML=h;
-  $("dbSearch").oninput=function(){ _dbSearch=this.value; _dbSearchFocus=true; clearTimeout(renderDb._t); renderDb._t=setTimeout(function(){ showTab("db"); },300); };
-  $("dbSearch").onfocus=function(){ _dbSearchFocus=true; };
-  $("dbSearch").onblur=function(){ _dbSearchFocus=false; };
-  $("dbCat").onchange=function(){ _dbCat=this.value; showTab("db"); };
-  $("dbAdd").onclick=function(){ editProduct("",true); };
+  h+='</tbody></table></div>';
+  wrap.innerHTML=h;
+  var cnt=document.getElementById("dbCntHint");
+  if(cnt) cnt.textContent='内置 '+PRODUCTS.length+' · 自定义 '+customs.length+' · 有覆盖 '+ovs.length+' · 当前显示 '+models.length;
   $("dbSelAll").onchange=function(){ var on=this.checked; document.querySelectorAll(".dbChk").forEach(function(c){ c.checked=on; }); };
-  $("dbBatchDel").onclick=batchDeleteSel;
-  $("dbBatchEdit").onclick=batchEditFields;
-  $("dbBatchSpec").onclick=batchSetSpec;
-  $("dbTpl").onclick=openTemplate;
-  var uh=$("dbUnhide"); if(uh) uh.onclick=async function(){ Object.keys(DB.overrides).forEach(function(m){ if(DB.overrides[m]&&DB.overrides[m]._hidden) delete DB.overrides[m]._hidden; }); try{ await saveDb(); showTab("db"); }catch(e){ alert(e.message||e); } };
-  M.querySelectorAll("[data-e]").forEach(function(b){ b.onclick=function(){ editProduct(b.dataset.e,false); }; });
-  M.querySelectorAll("[data-img]").forEach(function(b){ b.onclick=function(){ editProductImg(b.dataset.img); }; });
-  M.querySelectorAll("[data-d]").forEach(function(b){ b.onclick=async function(){
+  wrap.querySelectorAll("[data-e]").forEach(function(b){ b.onclick=function(){ editProduct(b.dataset.e,false); }; });
+  wrap.querySelectorAll("[data-img]").forEach(function(b){ b.onclick=function(){ editProductImg(b.dataset.img); }; });
+  wrap.querySelectorAll("[data-d]").forEach(function(b){ b.onclick=async function(){
     var m=b.dataset.d; var isCustom=!!DB.custom[m];
     if(!confirm(isCustom?("删除自定义产品 "+m+"？"):("还原 "+m+" 为内置参数（删除所有后台改动）？"))) return;
     delete DB.custom[m]; delete DB.overrides[m];
     try{ await saveDb(); showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
   };});
-  _restoreSearchFocus("dbSearch"); // v131b：重渲染后恢复搜索框焦点与光标，支持连续输入
 }
 var PROD_FIELDS=[["model","型号 *"],["category","类别"],["brand","品牌"],["power","功率"],["voltage","电压"],["frequency","频率"],["windspeed","风速"],["gears","档位"],["material","材质"],["packing","装箱量/包装"],["net_weight","净重"],["gross_weight","毛重"],["inner_box","内盒"],["outer_box","外箱"],["prod_size","产品尺寸"],["moq","起订量"],["price_rmb","底价 RMB"],["price_usd_exw","底价 USD"]];
 var PF_SAVE=PROD_FIELDS.concat([["spec_text","规格参数"]]);
