@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v140</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v141</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5551,7 +5551,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=140', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=141', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5749,7 +5749,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 140;
+  var APP_VER = 141;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
