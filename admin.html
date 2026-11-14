@@ -89,7 +89,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=127').catch(function () {});
+      try {
+        navigator.serviceWorker.register('./sw.js?v=140', { updateViaCache: 'none' }).then(function (reg) {
+          try { if (reg && reg.update) reg.update(); } catch (e) {}
+        }).catch(function () {});
+      } catch (e) {}
     });
   }
 </script>
@@ -98,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通</span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v140</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -1304,6 +1308,59 @@ window.addEventListener("load",function(){
     showTab("dash");
   }).catch(function(){ /* 停留在登录页 */ });
 });
+</script>
+<script>
+/* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
+(function(){
+  var ADMIN_VER = 140, _busy=false, _bar=null, _remote=0;
+  function toast(t,ms){
+    try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
+    try{ console.log(t); }catch(e){}
+  }
+  window.hpAdminApplyUpdate = function(){
+    try{ localStorage.setItem('huipu_auto_upd_at', String(Date.now())); }catch(e){}
+    var fired=false;
+    function go(){
+      if(fired) return; fired=true;
+      location.replace(location.origin + location.pathname + '?v=' + (_remote||ADMIN_VER+1) + '&t=' + Date.now());
+    }
+    try{
+      var jobs=[];
+      if(window.caches && caches.keys){ jobs.push(caches.keys().then(function(ks){ return Promise.all(ks.map(function(k){ return caches.delete(k); })); })); }
+      if(navigator.serviceWorker && navigator.serviceWorker.getRegistrations){ jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){ return Promise.all(rs.map(function(r){ return r.unregister(); })); })); }
+      if(jobs.length){ Promise.all(jobs).then(go).catch(go); setTimeout(go,1200); } else go();
+    }catch(e){ go(); }
+  };
+  window.hpAdminCheckUpdate = function(manual){
+    if(_busy) return Promise.resolve(null);
+    _busy=true;
+    return fetch('version.json?t='+Date.now(), { cache:'no-store' }).then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    }).then(function(j){
+      var rv=parseInt(j&&j.version,10)||0;
+      if(rv>ADMIN_VER){
+        _remote=rv;
+        if(!_bar || !document.body.contains(_bar)){
+          _bar=document.createElement('div');
+          _bar.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#0f2e4a;color:#fff;padding:11px 14px;font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:0 -6px 20px rgba(0,0,0,.28)';
+          _bar.innerHTML='<span style="flex:1;min-width:180px">🔔 后台有新版本 <b>v'+rv+'</b>，更新后再改数据，避免与新版不一致。</span>'
+            +'<button id="hpAdmGo" style="background:#ffb703;border:none;color:#1b1b1b;font-weight:700;padding:8px 16px;border-radius:8px;cursor:pointer">立即更新</button>'
+            +'<button id="hpAdmLater" style="background:transparent;border:1px solid #7f9ab3;color:#dbe8f4;padding:7px 12px;border-radius:8px;cursor:pointer">稍后</button>';
+          document.body.appendChild(_bar);
+          _bar.querySelector('#hpAdmGo').onclick=function(){ window.hpAdminApplyUpdate(); };
+          _bar.querySelector('#hpAdmLater').onclick=function(){ try{ _bar.remove(); }catch(e){} };
+        }
+        return rv;
+      }
+      if(manual) toast('✅ 后台已是最新版本 v'+ADMIN_VER, 3500);
+      return rv;
+    }).catch(function(e){ if(manual) toast('⚠ 检查更新失败：'+((e&&e.message)||'网络异常'), 4000); return null; })
+      .then(function(v){ _busy=false; return v; });
+  };
+  setTimeout(function(){ window.hpAdminCheckUpdate(false); }, 2500);
+  setInterval(function(){ try{ if(document.visibilityState!=='hidden') window.hpAdminCheckUpdate(false); }catch(e){} }, 5*60*1000);
+})();
 </script>
 </body>
 </html>
