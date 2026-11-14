@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v129</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v130</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -2385,11 +2385,13 @@ function rowsToText(rows){ return (rows||[]).filter(r=>r&&(r[0]||r[1])).map(r=>(
 /* 参数去重：同一参数名只保留一条（重名时优先保留有内容的值），无标签行原样保留 */
 function normSpecKey(k){ return String(k||"").trim().toLowerCase().replace(/[\s:：]+/g,""); }
 function dedupeSpecRows(rows){
-  /* v129：同义参数名也合并（挂壁功能≈壁挂功能、Setting≈档位功能 等，经 SPEC_NAME_SYN 归组）；
-     合并时优先保留候选池(DB.specCands)里的规范名作为参数名，值取第一个非空 */
+  /* v130：同义参数名合并升级——并查集支持中英多写法归组（Motor type≡电机类型、
+     Wall-mounted≡壁挂功能、Power Cord/Length≡线长 等）；合并时参数名与值都优先取
+     候选池(DB.specCands)规范行，其余情况值取第一个非空 */
   let poolNames=null;
   try{ poolNames=new Set((DB.specCands||[]).map(r=>normSpecKey(r&&r[0]))); }catch(e){ poolNames=new Set(); }
   const gkey=name=>{
+    if(typeof specGroupKey==="function"){ const g=specGroupKey(name); if(g) return g; }
     const nk=normSpecKey(name);
     const syn=(typeof SPEC_NAME_SYN!=="undefined")&&SPEC_NAME_SYN[nk];
     return syn? [nk,normSpecKey(syn)].sort().join("|") : nk;
@@ -2404,8 +2406,11 @@ function dedupeSpecRows(rows){
     if(at===undefined){ seen.set(g,out.length); out.push([r[0],r[1]]); }
     else{
       const cur=out[at];
-      if(poolNames.has(k) && !poolNames.has(normSpecKey(cur[0]))) cur[0]=r[0]; // 名字取候选池规范名
-      if(!String(cur[1]||"").trim() && String(r[1]||"").trim()) cur[1]=r[1];   // 值取第一个非空
+      if(poolNames.has(k) && !poolNames.has(normSpecKey(cur[0]))){
+        cur[0]=r[0];                                  // 参数名取候选池规范名（如 电机类型 优先于 Motor type）
+        if(String(r[1]||"").trim()) cur[1]=r[1];      // 值跟随规范行的值
+      }
+      else if(!String(cur[1]||"").trim() && String(r[1]||"").trim()){ cur[1]=r[1]; } // 值取第一个非空
     }
   });
   return out;
@@ -2673,7 +2678,20 @@ function dlFor(key){
 }
 /* 参数候选池：只显示管理员模板里设置的候选（DB.specCands）+ 少量内置固定选项。
    不再扫描资料库（历史脏值会污染下拉）。模板中文名与报表英文名自动对应（颜色↔Color 等）。 */
-const SPEC_NAME_SYN={"color":"颜色","colour":"颜色","颜色":"color","certification":"认证","认证":"certification","material":"材质","材质":"material","power":"功率","功率":"power","voltage":"电压","电压":"voltage","frequency":"频率","频率":"frequency","gears":"档位","档位":"gears","setting":"gears","档位功能":"gears","windspeed":"风速","风速":"windspeed","wind speed":"风速","powercord":"线长","线长":"powercord","power cord":"线长","warranty":"保修","保修":"warranty","plug":"插头","插头":"plug","挂壁功能":"壁挂功能","壁挂功能":"挂壁功能"};
+const SPEC_NAME_SYN={"color":"颜色","colour":"颜色","颜色":"color","certification":"认证","认证":"certification","material":"材质","材质":"material","power":"功率","功率":"power","voltage":"电压","电压":"voltage","frequency":"频率","频率":"frequency","gears":"档位","档位":"gears","setting":"gears","档位功能":"gears","windspeed":"风速","风速":"windspeed","wind speed":"风速","powercord":"线长","线长":"powercord","power cord":"线长","warranty":"保修","保修":"warranty","plug":"插头","插头":"plug","挂壁功能":"壁挂功能","壁挂功能":"挂壁功能",
+"motor type":"电机类型","电机类型":"motor type","motortype":"电机类型","motor life":"电机寿命","电机寿命":"motor life","motorlife":"电机寿命","overheat protection":"过热保护","过热保护":"overheat protection","overheatprotection":"过热保护","safety device":"过热保护","safetydevice":"过热保护","wall-mounted":"壁挂功能","wallmounted":"壁挂功能","wall-mountedfunction":"壁挂功能","wallmountedfunction":"壁挂功能","hanging function":"壁挂功能","hangingfunction":"壁挂功能","powercord/length":"线长","powercordlength":"线长"};
+/* v130：同义组并查集——中英多写法归并到同一组（Motor type≡电机类型、Wall-mounted≡壁挂功能 等） */
+const _synUF={};
+function _synFind(x){ let n=0; while(_synUF[x]&&_synUF[x]!==x&&n++<50) x=_synUF[x]; return x; }
+(function(){
+  Object.keys(SPEC_NAME_SYN).forEach(a=>{
+    const na=normSpecKey(a), nb=normSpecKey(SPEC_NAME_SYN[a]);
+    if(!na||!nb) return;
+    const ra=_synFind(na), rb=_synFind(nb);
+    if(ra!==rb) _synUF[ra]=rb;
+  });
+})();
+function specGroupKey(name){ const k=normSpecKey(name); return k? _synFind(k):""; }
 function specValCands(key){
   const nk=normSpecKey(key||""); const out=[];
   const push=v=>{
@@ -5215,7 +5233,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=129').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=130').catch(function(e){ /* offline not critical */ });
     });
   }
 
