@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=119').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=120').catch(function () {});
     });
   }
 </script>
@@ -752,7 +752,7 @@ function editProduct(m,isNew){
     var tpl=(SYS.settings&&SYS.settings.dbTemplate)||{};
     p=Object.assign({},tpl.fields||{},p);
     var tplLines=[];
-    (tpl.spec||[]).concat(tpl.customFields||[]).forEach(function(r){ if(r[0]) tplLines.push(r[0]+": "+r[1]); else if(r[1]) tplLines.push(r[1]); });
+    (tpl.spec||[]).concat(tpl.customFields||[]).forEach(function(r){ if(r[0]) tplLines.push(r[0]+": "+firstCandidate(r[1])); else if(r[1]) tplLines.push(firstCandidate(r[1])); });
     if(!p.spec_text && tplLines.length){
       p.spec_text=tplLines.join("\n");
     }
@@ -767,7 +767,7 @@ function editProduct(m,isNew){
   });
   var spLines=parseSpecLines(p.spec_text);
   h+='</div><datalist id="pfCats">'+PROD_CATS.map(function(c){ return '<option value="'+esc(c)+'">'; }).join("")+'</datalist>'
-   +'<div style="margin:10px 0 4px"><b>规格参数</b> <span class="hint">（每行一条，可添加/删除，以「参数名: 参数值」格式保存）</span></div>'
+   +'<div style="margin:10px 0 4px"><b>规格参数</b> <span class="hint">（每行一条，可添加/删除；参数值输入框可下拉选已有候选值，也可直接输入新值）</span></div>'
    +'<div id="pfSpecRows">'+spLines.map(function(r){ return specRowHtml(r[0],r[1]); }).join("")+'</div>'
    +'<button type="button" class="btn sm ghost" id="pfSpecAdd" style="margin-top:6px">＋ 添加参数</button>'
    +'<div class="hint" style="margin:8px 0">'+(isNew?"新字段将写入自定义产品库。":"仅保存与内置参数不同的字段，内置库更新时仍能自动带入。")+'</div>'
@@ -811,13 +811,63 @@ function parseSpecLines(t){
 }
 function specRowHtml(k,v){
   return '<div class="specRow" style="display:flex;gap:6px;margin-top:6px;align-items:center">'
-   +'<input class="spk" placeholder="参数名" value="'+esc(k)+'" style="width:150px;flex:none">'
-   +'<input class="spv" placeholder="参数值" value="'+esc(v)+'" style="flex:1;min-width:120px">'
+   +'<input class="spk" list="specNameOptions" placeholder="参数名" value="'+esc(k)+'" style="width:150px;flex:none">'
+   +'<input class="spv" list="specValOptions" placeholder="参数值（可下拉选已有值）" value="'+esc(v)+'" style="flex:1;min-width:120px">'
    +'<button type="button" class="btn sm danger spDel" style="flex:none">删</button></div>';
+}
+/* 参数候选池：模板里用「、」分隔可填多个候选值；资料库已有产品的参数值也汇总进来 */
+function specCandidateMap(){
+  var map={};
+  function addRaw(name,val,splitIt){
+    if(!name||val==null) return;
+    var k=normSpecKey2(name); if(!k) return;
+    if(!map[k]) map[k]={name:name,vals:[]};
+    (splitIt? String(val).split(/[、|｜;；]/) : [String(val)]).forEach(function(v){
+      v=String(v).trim(); if(v&&map[k].vals.indexOf(v)<0) map[k].vals.push(v);
+    });
+  }
+  var t=(SYS.settings&&SYS.settings.dbTemplate)||{};
+  (t.spec||[]).concat(t.customFields||[]).forEach(function(r){ addRaw(r[0],r[1],true); });
+  var seen={};
+  PRODUCTS.map(function(p){ return p.model; }).concat(Object.keys(DB.custom||{})).concat(Object.keys(DB.overrides||{})).forEach(function(m){
+    if(seen[m]) return; seen[m]=1;
+    var p=effProduct(m); if(!p) return;
+    parseSpecLines(p.spec_text||"").forEach(function(r){ addRaw(r[0],r[1],false); });
+  });
+  return map;
+}
+function firstCandidate(v){
+  var s=String(v==null?"":v);
+  var parts=s.split(/[、|｜;；]/).map(function(x){ return x.trim(); }).filter(Boolean);
+  return parts.length? parts[0] : "";
+}
+function ensureSpecDatalists(){
+  if(document.getElementById("specNameOptions")) return;
+  document.body.insertAdjacentHTML("beforeend",'<datalist id="specNameOptions"></datalist><datalist id="specValOptions"></datalist>');
+}
+function refreshSpecDatalists(row){
+  ensureSpecDatalists();
+  var map=specCandidateMap();
+  var dn=document.getElementById("specNameOptions"), dv=document.getElementById("specValOptions");
+  if(dn) dn.innerHTML=Object.keys(map).map(function(k){ return '<option value="'+esc(map[k].name)+'">'; }).join("");
+  if(dv){
+    var nk=row? normSpecKey2(row.querySelector(".spk").value) : "";
+    var vals=(nk&&map[nk])? map[nk].vals : [];
+    dv.innerHTML=vals.map(function(v){ return '<option value="'+esc(v)+'">'; }).join("");
+  }
 }
 function bindSpecEditor(rowsId,addId){
   $(addId).onclick=function(){ $(rowsId).insertAdjacentHTML("beforeend",specRowHtml("","")); };
   $(rowsId).addEventListener("click",function(e){ var b=e.target.closest(".spDel"); if(b) b.closest(".specRow").remove(); });
+  // 聚焦参数名/参数值时，按参数名刷新候选值下拉；参数名改动后同步
+  $(rowsId).addEventListener("focusin",function(e){
+    var row=e.target.closest(".specRow"); if(!row) return;
+    if(e.target.classList.contains("spk")||e.target.classList.contains("spv")) refreshSpecDatalists(row);
+  });
+  $(rowsId).addEventListener("input",function(e){
+    if(!e.target.classList.contains("spk")) return;
+    var row=e.target.closest(".specRow"); if(row) refreshSpecDatalists(row);
+  });
 }
 function readSpecEditor(rowsId){
   var lines=[];
@@ -896,7 +946,7 @@ function openTemplate(){
    +'<div style="margin:6px 0 4px"><b>固定字段</b> <span class="hint">（字段名可下拉选择内置字段，也可自己输入；留空的行保存时忽略）</span></div>'
    +'<div id="tpFieldRows">'+rows.join("")+'</div>'
    +'<button type="button" class="btn sm ghost" id="tpFieldAdd" style="margin-top:2px">＋ 添加字段</button>'
-   +'<div style="margin:10px 0 4px"><b>固定规格参数</b> <span class="hint">（每行一条，可添加/删除）</span></div>'
+   +'<div style="margin:10px 0 4px"><b>固定规格参数</b> <span class="hint">（每行一条；同一参数要多个可选值，用「、」分隔，例如 110V、220V、240V —— 应用到产品时默认取第一个，编辑产品时可在下拉里切换）</span></div>'
    +'<div id="tpSpecRows">'+(ts.length?ts.map(function(r){ return specRowHtml(r[0],r[1]); }).join(""):"")+'</div>'
    +'<button type="button" class="btn sm ghost" id="tpAdd" style="margin-top:6px">＋ 添加参数</button>'
    +'<div class="bar" style="margin-top:10px"><button class="btn" id="tpSave">保存模板</button><button class="btn" id="tpApply">应用到勾选产品</button><button class="btn ghost" id="tpCancel">关闭</button></div>'
@@ -916,7 +966,8 @@ function openTemplate(){
     var ms=selectedModels();
     if(!ms.length){ alert("请先在资料库列表勾选要应用的产品，再打开本模板点「应用到勾选产品」"); return; }
     var t2=readTplInputs();
-    var extra=(t2.spec||[]).concat(t2.customFields||[]); // 自定义字段与规格参数一样并入规格参数
+    // 模板值可能是多个候选（用「、」分隔）——应用到产品时取第一个作为默认值
+    var extra=(t2.spec||[]).concat(t2.customFields||[]).map(function(r){ return [r[0],firstCandidate(r[1])]; });
     if(!Object.keys(t2.fields).length&&!extra.length){ alert("模板为空，没有可应用的内容"); return; }
     if(!confirm("把模板参数应用到勾选的 "+ms.length+" 个产品？\n内置字段=非空项覆盖；自定义字段与规格参数=同名以模板为准、其余保留。")) return;
     ms.forEach(function(m){
