@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v135</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v136</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -1019,6 +1019,9 @@ function transStatus(msg){ const el=$("transStatus"); if(el) el.textContent=msg|
    注意顺序：复合词排在单字前面，避免被更短的词提前替换。 */
 const TRADE_TERMS=[
   /* 长词/组合词放最前，避免被短词抢先替换 */
+  /* v136：后台模板里的中文参数名（必在「电机」等短词之前，否则会被拆成 Motor类型） */
+  ["电机类型","Motor Type"],["电机寿命","Motor Life"],["过热保护","Overheat Protection"],
+  ["壁挂功能","Wall-mounted Function"],["挂壁功能","Wall-mounted Function"],
   ["档位功能","Speed Settings Function"],["挂座功能","Hanging Function"],
   ["内盒尺寸","Inner Box Dimensions"],
   ["三档温度","3 Temperatures"],["二档温度","2 Temperatures"],["一档温度","1 Temperature"],
@@ -1072,7 +1075,7 @@ const EN2ZH={
   "ionic":"负离子","ionic generator":"负离子发生器","dual ionic":"双负离子","diffuser":"扩散风嘴",
   "concentrator nozzle":"集风嘴","nozzle":"风嘴","overheat protection":"过热保护","overheating protection":"过热保护",
   "safety device":"安全装置","plug":"插头","button":"按键","switch":"开关","micro switch":"微动开关",
-  "with power switch":"带电源开关","wall-mounted":"壁挂式","wall mounted":"壁挂式","installation":"安装方式",
+  "with power switch":"带电源开关","wall-mounted":"壁挂式","wall mounted":"壁挂式","wall-mounted function":"壁挂功能","wall mounted function":"壁挂功能","installation":"安装方式",
   "installation method":"安装方式","hair care":"护发","hair care device":"护发装置","functions":"功能","function":"功能",
   "hanging function":"挂座功能","power cord":"电源线","cord length":"线长","spring cord":"弹簧线",
   "power cord/length":"电源线/线长","packing":"包装","packing qty":"装箱数","pcs/ctn":"只/箱","pcs ctn":"只/箱",
@@ -2630,7 +2633,9 @@ async function addItem(model){
   // 否则才回退旧快照 ov.specRows/ov.pack（员工历史报价时存的参数版本）
   const ADMIN_LIB_KEYS=["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","prod_size","power","voltage","windspeed","gears","material","category","brand","spec_text"];
   const adminTouched = ADMIN_LIB_KEYS.some(k=> ov[k]!==undefined);
-  const specRows = specOrderVoltageFirst(dedupeSpecRows((adminTouched&&p)? buildSpecRows(p) : (ov.specRows? ov.specRows.map(r=>[r[0],r[1]]) : (p? buildSpecRows(p) : [["Voltage",""],["Power",""]]))));
+  // v136：有后台模板时，新条目的参数行直接按模板结构生成（不再抄资料库里的杂乱参数文本）
+  const _tplRows = (model && tplDefault())? templateSpecRows({model:model, specRows:(ov.specRows||[])}) : null;
+  const specRows = (_tplRows && _tplRows.length)? _tplRows : specOrderVoltageFirst(dedupeSpecRows((adminTouched&&p)? buildSpecRows(p) : (ov.specRows? ov.specRows.map(r=>[r[0],r[1]]) : (p? buildSpecRows(p) : [["Voltage",""],["Power",""]]))));
   const packRows = p? buildPackRows(p) : [];
   items.push({
     model: model||"", desc: p? prodName(p) : (model||""), specRows: specRows, spec: rowsToText(specRows),
@@ -2640,6 +2645,7 @@ async function addItem(model){
   });
   dedupeItemSmart(items[items.length-1]); // 强制智能去重（规格/包装跨列）
   items[items.length-1]._dbSig=JSON.stringify(items[items.length-1].specRows); // v131：记录后台参数基线，用于后台更新后自动同步
+  items[items.length-1]._tplRev=tplRev(); // v136：记录模板版本，模板变更时强制按模板重建
   // new model not in built-in library -> register into local DB for next time
   if(model && !PROD_MAP[model] && !DB.custom[model]){
     DB.custom[model] = {model:model, category:"自定义", brand:"本地", moq:(p&&p.moq)||""};
@@ -2675,41 +2681,36 @@ function scrubSpecValues(it){
 }
 function refreshItemFromDb(it){
   if(!it||!it.model) return false;
-  const p=effProduct(it.model); if(!p) return false;
-  const dbRows=dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p)));
-  if(!dbRows.length) return false;
-  // v134：保留「模板/手动添加且资料库没有」的参数行（电机类型/保修等），其余以资料库为准
-  const dbKeys=new Set(dbRows.map(r=>normSpecKey(r[0])));
-  let poolNames=null;
-  try{ poolNames=new Set((DB.specCands||[]).map(r=>normSpecKey(r&&r[0]))); }catch(e){ poolNames=new Set(); }
-  const keep=[];
-  (it.specRows||[]).forEach(r=>{
-    if(!r||!Array.isArray(r)||!r[0]) return;
-    const nk=normSpecKey(r[0]);
-    if(!nk||dbKeys.has(nk)) return;              // 无名行/资料库权威行：不保留旧值
-    const syn=(typeof SPEC_NAME_SYN!=="undefined")&&SPEC_NAME_SYN[nk];
-    const inPool=poolNames.has(nk)||(syn&&poolNames.has(normSpecKey(syn)));
-    if(inPool&&String(r[1]||"").trim()) keep.push([r[0],String(r[1]).replace(/[、，,;；|]+\s*$/,"").trim()]);
-  });
-  const rows=dedupeSpecRows(specOrderVoltageFirst(dbRows.concat(keep)));
+  // v136：后台模板存在时，参数行完全按模板结构重建（旧的不规范参数清零）
+  let rows=null;
+  if(tplDefault()) rows=templateSpecRows(it);
+  if(!rows||!rows.length){
+    const p=effProduct(it.model); if(!p) return false;
+    rows=dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p)));
+  }
   if(!rows.length) return false;
   it.specRows=rows; it.spec=rowsToText(rows);
-  try{ it.pack=rowsToText(buildPackRows(p)); }catch(e){}
-  if(p.packing) it.packing=p.packing;
-  if(p.moq) it.moq=p.moq;
-  it._dbSig=JSON.stringify(dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p))));
+  it._dbSig=JSON.stringify(tplSigForModel(it.model));
+  it._tplRev=tplRev();
+  // 注意：pack / packing / 净毛重 / 内盒 / 外箱尺寸等装箱参数一律不动（用户明确要求）
   return true;
 }
 // 自动同步：只同步「参数与基线一致（未手动改过）」的条目；手动改过的不动（可用「↻ 后台参数」手动刷新）
 function autoSyncItemsFromDb(){
   let auto=0, scrubbedAny=false;
+  const rev=tplRev();
   items.forEach(it=>{
     if(!it||!it.model) return;
     let scrubbed=false; try{ scrubbed=scrubSpecValues(it); }catch(e){}
     if(scrubbed){ scrubbedAny=true; try{ saveOverride(it); }catch(e){} }
+    // v136：后台模板有变化（新增/改了候选或字段）→ 一律按模板重建本条参数（清零旧的杂乱参数）
+    if(tplDefault() && it._tplRev!==rev){
+      if(refreshItemFromDb(it)){ try{ saveOverride(it); }catch(e){} auto++; }
+      return;
+    }
     if(!it._dbSig) it._dbSig=JSON.stringify(it.specRows||[]); // 旧条目补记基线
     const p=effProduct(it.model); if(!p) return;
-    const nb=JSON.stringify(dedupeSpecRows(specOrderVoltageFirst(buildSpecRows(p))));
+    const nb=JSON.stringify(tplSigForModel(it.model));
     let untouched=(JSON.stringify(it.specRows)===it._dbSig);
     if(!untouched&&scrubbed){
       try{ const tmp={specRows:JSON.parse(it._dbSig)}; scrubSpecValues(tmp); untouched=(JSON.stringify(it.specRows)===JSON.stringify(tmp.specRows)); }catch(e){}
@@ -2718,19 +2719,20 @@ function autoSyncItemsFromDb(){
       if(refreshItemFromDb(it)){ try{ saveOverride(it); }catch(e){} auto++; }
     }
   });
-  if(auto) syncBadge("⇩ 已自动同步 "+auto+" 个型号的后台最新参数");
+  if(auto) syncBadge("⇩ 已按后台模板重建 "+auto+" 个型号的参数（装箱信息未动）");
   if(auto||scrubbedAny){ persistAll(); renderItems(); renderPreview(); }
   return auto;
 }
 function syncAllItemsFromDb(){
   let n=0, skip=0;
+  if(!tplDefault()){ alert("还没读到后台「固定参数模板」。\n请确认已登录、网络正常后重新打开本页（后台设置的模板会自动同步下来）。"); return; }
   items.forEach(it=>{
     if(!it.model) return;
     if(!effProduct(it.model)){ skip++; return; }
     if(refreshItemFromDb(it)){ saveOverride(it); n++; }
   });
   renderItems(); persistAll(); renderPreview();
-  alert("已同步 "+n+" 个型号的参数表/包装参数为后台最新值。"+(skip?("（"+skip+" 个型号不在资料库，跳过）"):"")+"\n\n提示：后台再次更新参数后，点本按钮即可刷新；数量/单价/图片不受影响。");
+  alert("已按后台模板重建 "+n+" 个型号的规格参数（旧参数已清零，装箱尺寸/装箱规格保持不变）。"+(skip?("（"+skip+" 个型号不在资料库，跳过）"):""));
 }
 function parseMoq(s){ if(!s) return 0; const m=String(s).match(/(\d+)/); return m?parseInt(m[1]):0; }
 
@@ -2790,18 +2792,91 @@ function _synFind(x){ let n=0; while(_synUF[x]&&_synUF[x]!==x&&n++<50) x=_synUF[
   });
 })();
 function specGroupKey(name){ const k=normSpecKey(name); return k? _synFind(k):""; }
-function specValCands(key){
-  const nk=normSpecKey(key||""); const out=[];
-  const push=v=>{
-    String(v==null?"":v).split(/[、|｜;；]/).map(s=>s.trim()).filter(Boolean).forEach(s=>{ if(!out.includes(s)) out.push(s); });
+/* ---------- v136：后台「固定参数模板」为唯一权威 ----------
+   ① 下拉候选实时读取模板（不再依赖云端候选池同步是否成功）
+   ② 报价条目参数行按模板结构重建（旧的不规范参数一律清零），装箱信息绝不触碰 */
+var TPL_SET=null;   // 后台 huipu_sys_v1.settings
+function tplList(){ return (TPL_SET&&Array.isArray(TPL_SET.dbTemplates))?TPL_SET.dbTemplates:[]; }
+function tplDefault(){
+  const L=tplList(); if(!L.length) return null;
+  const dn=TPL_SET.dbTemplateDefault||"";
+  return L.find(t=>t&&t.name===dn) || L[0];
+}
+const TPL_FIELD_CN={voltage:"电压",power:"功率",windspeed:"风速",gears:"档位",frequency:"频率",material:"材质",noise:"噪音",packing:"装箱量",net_weight:"净重",gross_weight:"毛重",inner_box:"内盒尺寸",outer_box:"外箱尺寸",prod_size:"产品尺寸",moq:"起订量",category:"类别",brand:"品牌"};
+const TPL_SPEC_ORDER=["voltage","power","windspeed","gears","frequency","material"];
+function splitCands(v){ return String(v==null?"":v).split(/[、|｜;；]/).map(s=>s.trim()).filter(Boolean); }
+function cleanVal(v){ return String(v==null?"":v).replace(/[、，,;；|]+\s*$/,"").trim(); }
+function firstCand(v){ const a=splitCands(v); return a.length? cleanVal(a[0]) : ""; }
+let _tplCandCache=null, _tplCandRev="~";
+function tplRev(){ try{ const t=tplDefault(); return t? JSON.stringify({n:t.name,f:t.fields,c:t.customFields,s:t.spec}):""; }catch(e){ return ""; } }
+function tplCandMap(){
+  const rv=tplRev();
+  if(_tplCandCache && _tplCandRev===rv) return _tplCandCache;
+  const out={};
+  const add=(nm,v)=>{
+    const k=specGroupKey(nm); if(!k) return;
+    if(!out[k]) out[k]=[];
+    splitCands(v).forEach(s=>{ const x=cleanVal(s); if(x&&out[k].indexOf(x)<0) out[k].push(x); });
   };
-  // 候选名匹配集合：本名 + 中英对照名
-  const names=new Set([nk]);
-  const syn=SPEC_NAME_SYN[nk]||SPEC_NAME_SYN[String(key||"").trim().toLowerCase()];
-  if(syn){ names.add(normSpecKey(syn)); }
-  // 1) 管理员模板候选池（唯一可信来源）
-  (DB.specCands||[]).forEach(r=>{ if(r&&r[0]&&names.has(normSpecKey(r[0]))) (r[1]||[]).forEach(push); });
-  // 2) 内置固定选项（官方维护的固定清单）
+  tplList().forEach(t=>{
+    Object.keys(t.fields||{}).forEach(k=>{ add(TPL_FIELD_CN[k]||k, t.fields[k]); });
+    (t.customFields||[]).forEach(r=>{ if(r&&r[0]) add(r[0], r[1]); });
+    (t.spec||[]).forEach(r=>{ if(r&&r[0]) add(r[0], r[1]); });
+  });
+  _tplCandCache=out; _tplCandRev=rv; return out;
+}
+/* 按模板结构重建参数行：行名/行序 = 模板；
+   值优先取资料库该型号的实际值，其次条目原值，最后模板第一个候选值。
+   （装箱/尺寸/重量等包装参数不在本函数处理范围，保持原样） */
+function templateSpecRows(it){
+  const t=tplDefault(); if(!t) return null;
+  const p=(it&&it.model)? effProduct(it.model) : null;
+  const cur={}, db={};
+  ((it&&it.specRows)||[]).forEach(r=>{
+    if(!r||!r[0]) return; const k=specGroupKey(r[0]); if(!k) return;
+    const v=String(r[1]||"").trim(); if(v && !cur[k]) cur[k]=v;
+  });
+  if(p){
+    TPL_SPEC_ORDER.forEach(k=>{ const cn=TPL_FIELD_CN[k]; if(cn&&p[k]!=null&&String(p[k]).trim()) db[specGroupKey(cn)]=String(p[k]).trim(); });
+    String(p.spec_text||"").split("\n").forEach(l=>{
+      if(!l.trim()) return; const kv=parseLineKV(l); if(!kv||!kv[0]) return;
+      if(typeof isPackKey==="function" && isPackKey(kv[0])) return;   // 装箱信息不进规格列
+      const k=specGroupKey(kv[0]); if(!k||db[k]) return;
+      const v=String(kv[1]||"").trim(); if(v) db[k]=v;
+    });
+  }
+  const rows=[], seen=new Set();
+  const add=(name,tplVal)=>{
+    const k=specGroupKey(name); if(!k||seen.has(k)) return; seen.add(k);
+    let v=db[k]||cur[k]||firstCand(tplVal);
+    rows.push([name, cleanVal(v)]);
+  };
+  const F=t.fields||{};
+  TPL_SPEC_ORDER.forEach(k=>{ if(F[k]!=null&&String(F[k]).trim()!=="") add(TPL_FIELD_CN[k]||k, F[k]); });
+  Object.keys(F).forEach(k=>{
+    if(TPL_SPEC_ORDER.indexOf(k)>=0) return;
+    if(!String(F[k]==null?"":F[k]).trim()) return;
+    if(/^price_|^moq$/.test(k)) return;
+    add(TPL_FIELD_CN[k]||k, F[k]);
+  });
+  (t.customFields||[]).forEach(r=>{ if(r&&r[0]) add(r[0], r[1]); });
+  (t.spec||[]).forEach(r=>{ if(r&&r[0]) add(r[0], r[1]); });
+  return rows;
+}
+/* 某型号的「模板+资料库」指纹：不含条目手动值，用于判断是否需要同步 */
+function tplSigForModel(model){
+  const rows=templateSpecRows({model:model, specRows:[]});
+  return rows||[];
+}
+function specValCands(key){
+  const out=[]; const target=specGroupKey(key);
+  const push=v=>{ splitCands(v).forEach(s=>{ const x=cleanVal(s); if(x&&out.indexOf(x)<0) out.push(x); }); };
+  // 1) 后台模板候选（主来源：实时读取模板，不依赖云端候选池）
+  if(target){ const m=tplCandMap(); (m[target]||[]).forEach(push); }
+  // 2) 云端候选池（历史兼容）
+  (DB.specCands||[]).forEach(r=>{ if(r&&r[0]&&target&&specGroupKey(r[0])===target) (r[1]||[]).forEach(push); });
+  // 3) 内置固定选项
+  const nk=normSpecKey(key||"");
   const FIX={"voltage":"dl-Voltage","frequency":"dl-Frequency","power":"dl-Power","powercord":"dl-Powercord","power cord":"dl-Powercord","color":"dl-Color","plug":"dl-Plug","certification":"dl-Certification"};
   const fid=FIX[nk];
   if(fid){ const fdl=document.getElementById(fid); if(fdl) fdl.querySelectorAll("option").forEach(o=>push(o.value)); }
@@ -5309,7 +5384,9 @@ async function pv90SyncSys(){
     const r=await withTimeout(cloud.database.from("quotation_state").select("data").eq("workspace_id",WS_ID).maybeSingle(),15000);
     const st=(r.data&&r.data.data)||{};
     const sys=st["huipu_sys_v1"]||{};
+    TPL_SET=sys.settings||null; // v136：后台模板（下拉候选 + 参数行重建的唯一来源）
     pv90ApplyFeatures(sys.features||{});
+    try{ if(typeof autoSyncItemsFromDb==="function") setTimeout(function(){ try{ autoSyncItemsFromDb(); }catch(e){} },80); }catch(e){}
     if(pv90ApplySettings(sys.settings)){
       if(Date.now()-pv90Boot<20000 && !pv90Reloaded){ pv90Reloaded=true; setTimeout(function(){ location.reload(); },300); }
       else pv90AskRefresh();
@@ -5351,7 +5428,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=135').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=136').catch(function(e){ /* offline not critical */ });
     });
   }
 
