@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v137</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v138</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -1531,7 +1531,24 @@ async function mergeCloudDb(){
 // 员工端每 30 秒自动同步一次资料库/常用参数，管理员新增即时可见
 setInterval(()=>{ try{ if(!WS.isOwner && cloudReady() && WS.loaded && !WS.locked) mergeCloudDb(); }catch(e){} }, 30000);
 function debouncedPush(){ if(_pushTimer) clearTimeout(_pushTimer); _pushTimer=setTimeout(doPushCloud, 800); }
+/* v138：doPushCloud 由 setTimeout 调用，内部 await 都在 try 之外（getSession / gatherState），
+   一旦登录会话过期或网络抖动就会变成「未处理错误」弹窗。这里统一兜住。 */
 async function doPushCloud(){
+  try{ return await _doPushCloudCore(); }
+  catch(e){
+    try{ _lastErr("push", e); }catch(_){}
+    const m=String((e&&e.message)||e||"");
+    if(/Invalid Refresh Token|refresh_token|Auth session missing|JWT|token/i.test(m)){
+      try{ syncBadge("🔒 登录已过期，请点右上角「登录同步」重新登录（本机数据已保存）"); }catch(_){}
+      try{ setTimeout(function(){ if(typeof openLogin==="function") openLogin(); },400); }catch(_){}
+    } else {
+      try{ syncBadge("⚠ 云端同步失败，稍后自动重试（本地数据已保存）"); }catch(_){}
+      try{ setTimeout(doPushCloud, 8000); }catch(_){}
+    }
+    return false;
+  }
+}
+async function _doPushCloudCore(){
   if(!cloudReady() || !WS.loaded || WS.locked) return;
   const { data: session } = await cloud.auth.getSession(); if(!session) return;
   if(!can("edit")){ syncBadge("只读权限，本机修改不会上传"); return; }
@@ -2942,10 +2959,19 @@ function openSpecDD(inp){
   dd.style.maxWidth="480px";
   dd.querySelectorAll(".specdd-i").forEach(el=> el.addEventListener("mousedown",ev=>{
     ev.preventDefault(); // 抢在 blur 之前写入
-    inp.value=el.dataset.v;
-    inp.dispatchEvent(new Event("input",{bubbles:true}));
-    inp.dispatchEvent(new Event("change",{bubbles:true}));
-    closeSpecDD();
+    try{
+      inp.dataset.ddpick="1";           // v138：标记本次 input 来自「点选候选」，不再重开弹层
+      inp.value=el.dataset.v;
+      inp.dispatchEvent(new Event("input",{bubbles:true}));
+      inp.dispatchEvent(new Event("change",{bubbles:true}));
+    }catch(err){
+      // 点选候选绝不能把异常抛到全局（员工端会弹「未处理错误」）
+      try{ _lastErr("spec-pick", err); }catch(_){}
+      try{ syncBadge("⚠ 参数选择未生效，请手动输入该值"); }catch(_){}
+    }finally{
+      try{ delete inp.dataset.ddpick; }catch(_){}
+      try{ closeSpecDD(); }catch(_){}
+    }
   }));
   specDD=dd;
 }
@@ -3044,9 +3070,15 @@ function renderItems(){
   });
   // 失焦时强制智能去重：同名参数/跨列重复自动合并
   box.querySelectorAll("[data-srk],[data-srv]").forEach(inp=> inp.onchange=()=>{
-    closeSpecDD();
-    const i=+(inp.dataset.srk||inp.dataset.srv).split(":")[0];
-    dedupeItemSmart(items[i]); saveOverride(items[i]); renderItems(); persistAll(); renderPreview();
+    try{
+      closeSpecDD();
+      const i=+(inp.dataset.srk||inp.dataset.srv).split(":")[0];
+      dedupeItemSmart(items[i]); saveOverride(items[i]); renderItems(); persistAll(); renderPreview();
+    }catch(e){
+      // v138：单个参数行处理失败不影响整张表（员工端曾因此弹「未处理错误」）
+      try{ _lastErr("spec-change", e); }catch(_){}
+      try{ syncBadge("⚠ 该参数保存时出错，已跳过（其余参数不受影响）"); }catch(_){}
+    }
   });
   box.querySelectorAll("[data-rmsr]").forEach(b=> b.onclick=()=>{
     const [i,j]=b.dataset.rmsr.split(":").map(Number);
@@ -3182,7 +3214,22 @@ function transSig(){
       ((custState.fields||[]).map(f=>String(f.value||"")).join("|"))+"|"+String(readTerms().moqText||"");
   }catch(e){ return ""; }
 }
+/* v138：renderPreview 是 async，但所有调用点都是裸调用（不 await）。
+   只要函数体里任何一处抛错，浏览器就会把它当成「未处理错误」弹出来——
+   员工端点选参数后触发预览重绘，正是最常见的触发场景。
+   这里用包装器兜住：异常只记录并在预览区提示，绝不再冒泡成全局错误。 */
 async function renderPreview(preTr){
+  try{ return await _renderPreviewCore(preTr); }
+  catch(e){
+    try{ _lastErr("preview", e); }catch(_){}
+    try{
+      const pv=$("preview");
+      if(pv) pv.innerHTML='<div style="padding:20px;color:#c0392b;font-size:13px;line-height:1.6">⚠ 预览暂时无法生成（参数与清单已保存，不影响导出）<br><span style="color:#666">原因：'+esc((e&&e.message)||e)+'</span></div>';
+    }catch(_){}
+    return false;
+  }
+}
+async function _renderPreviewCore(preTr){
   const tok=++_pvToken;
   const s=readSeller();
   let tr=null, _err1=null;
@@ -3450,6 +3497,22 @@ async function safeHtml2canvas(el){
   }
   throw lastErr||new Error("PDF 截图失败（移动端内存不足）");
 }
+/* v138：错误留痕（本机最多存 5 条），便于排查员工端报错
+   用户可在控制台执行 huipuLastErrors() 或把 toast 截屏反馈 */
+function _lastErr(tag, e){
+  try{
+    const rec={ t:new Date().toISOString(), tag:tag||"", msg:String((e&&(e.message||e))||e||""), stack:String((e&&e.stack)||"").slice(0,600) };
+    const k="huipu_last_err_v1";
+    let arr=[]; try{ arr=JSON.parse(localStorage.getItem(k)||"[]")||[]; }catch(_){ arr=[]; }
+    arr.unshift(rec); localStorage.setItem(k, JSON.stringify(arr.slice(0,5)));
+    console.warn("[hp]", tag, rec.msg);
+  }catch(_){}
+}
+window.huipuLastErrors=function(){ try{ return JSON.parse(localStorage.getItem("huipu_last_err_v1")||"[]"); }catch(_){ return []; } };
+/* 非致命错误判定：网络中断 / 登录会话过期 / 翻译服务超时等，不该弹「未处理错误」吓人 */
+function _isBenignErr(msg){
+  return /Failed to fetch|NetworkError|Load failed|network error|fetch failed|ERR_NETWORK|Auth session missing|Invalid Refresh Token|refresh_token|JWT|token is expired|token has expired|AbortError|timeout|timed out|ETIMEDOUT|503|502|504|offline|quota|QuotaExceeded/i.test(String(msg||""));
+}
 // 页内消息条：WebView2 里 JS alert 可能被抑制/不可见，关键提示一律走页内 toast，保证看得见
 function hpToast(msg, ms){
   try{
@@ -3470,8 +3533,15 @@ function hpAlert(msg, ms){
   else { try{ alert(msg); }catch(e){ hpToast(msg, ms||15000); } }
 }
 // 全局错误兜底：任何未捕获异常/ Promise 拒绝都显示在页面上，确保「卡死无反应」时能看到真实原因
-window.addEventListener("error",function(e){ var loc=""; try{ loc=((e&&e.filename)?String(e.filename).split("/").pop():"")+":"+(e&&e.lineno||"")+":"+(e&&e.colno||""); }catch(_){} try{ hpToast("⚠ 页面错误"+(loc?" ("+loc+")":"")+"："+((e&&e.message)||e),20000); }catch(_){} });
-window.addEventListener("unhandledrejection",function(e){ var r=e&&e.reason, loc=""; try{ var st=r&&r.stack; if(st){ var ms=String(st).split("\n"); for(var k=0;k<ms.length;k++){ if(/:\d+:\d+/.test(ms[k])){ loc=ms[k].trim().replace(/^at /,"").slice(0,140); break; } } } }catch(_){} try{ hpToast("⚠ 未处理错误："+((r&&r.message)||r||e)+(loc?" @ "+loc:""),20000); }catch(_){} });
+window.addEventListener("error",function(e){ var loc=""; try{ loc=((e&&e.filename)?String(e.filename).split("/").pop():"")+":"+(e&&e.lineno||"")+":"+(e&&e.colno||""); }catch(_){} try{ _lastErr("page@"+loc, e&&(e.error||e.message)); }catch(_){} try{ hpToast("⚠ 页面错误"+(loc?" ("+loc+")":"")+"："+((e&&e.message)||e),20000); }catch(_){} });
+window.addEventListener("unhandledrejection",function(e){ var r=e&&e.reason, loc="";
+  try{ var st=r&&r.stack; if(st){ var ms=String(st).split("\n"); for(var k=0;k<ms.length;k++){ if(/:\d+:\d+/.test(ms[k])){ loc=ms[k].trim().replace(/^at /,"").slice(0,140); break; } } } }catch(_){}
+  var msg=String((r&&(r.message||r))||e||"");
+  try{ _lastErr("promise@"+loc, r||msg); }catch(_){}
+  // v138：网络/会话/翻译等非致命拒绝 → 只提示自动重试，避免「未处理错误」打断报价操作
+  if(_isBenignErr(msg)){ try{ syncBadge("⚠ 云端连接不稳定，正在自动重试（本地数据已保存）"); }catch(_){} return; }
+  try{ hpToast("⚠ 未处理错误："+msg+(loc?" @ "+loc:""),20000); }catch(_){}
+});
 async function triggerDownload(blob, name, label){
   // 桌面 exe（pywebview / WebView2）环境：浏览器原生 <a download> 在 WebView2 不会落盘，
   // 改用原生「保存文件」对话框，由 Python 端写入磁盘，100% 可靠，且覆盖全部导出类型。
@@ -4305,6 +4375,7 @@ function bind(){
   });
   $("items").addEventListener("input",e=>{
     const inp=e.target.closest("input[data-srv]"); if(!inp) return;
+    if(inp.dataset.ddpick==="1") return; // v138：点选候选触发的 input 不重开弹层（否则闪烁/关不掉）
     inp.dataset.ddtyped="1"; openSpecDD(inp);
   });
   document.addEventListener("mousedown",e=>{
@@ -5467,7 +5538,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=137').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=138').catch(function(e){ /* offline not critical */ });
     });
   }
 
