@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v136</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v137</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -1020,6 +1020,27 @@ function transStatus(msg){ const el=$("transStatus"); if(el) el.textContent=msg|
 const TRADE_TERMS=[
   /* 长词/组合词放最前，避免被短词抢先替换 */
   /* v136：后台模板里的中文参数名（必在「电机」等短词之前，否则会被拆成 Motor类型） */
+  /* v137：模板候选值整串词典——行业词典直翻，不走机器翻译（秒翻、术语统一、两台设备结果一致） */
+  ["两档风速三档温度+微动开关","2 Speeds / 3 Temperatures + Micro Switch"],
+  ["两档风速三档温度+冷热风开关","2 Speeds / 3 Temperatures + Cool & Hot Shot"],
+  ["三档温度四档风速+微动开关","3 Temperatures / 4 Speeds + Micro Switch"],
+  ["三档温度四档风速+冷热风开关","3 Temperatures / 4 Speeds + Cool & Hot Shot"],
+  ["三档风速四档温度+冷热风开关","3 Speeds / 4 Temperatures + Cool & Hot Shot"],
+  ["冷热风开关","Cool & Hot Shot"],["冷热风","Cool & Hot Shot"],
+  ["ABS/PC/增强阻燃尼龙","ABS/PC / Flame-retardant Nylon"],["增强阻燃尼龙","Flame-retardant Nylon"],
+  ["0.5m插头线+2.5m弹簧线","0.5m Power Cord + 2.5m Spring Cord"],
+  ["无插头+2.5m弹簧线","No Plug + 2.5m Spring Cord"],["插头线","Power Cord"],
+  ["带断电总开关","With Power Switch"],["带微动开关","With Micro Switch"],
+  ["单USB+总开关","Single USB + Power Switch"],["双USB+总开关","Dual USB + Power Switch"],
+  ["110V刮须插座+总开关","110V Shaver Socket + Power Switch"],
+  ["万能插座+总开关","Universal Socket + Power Switch"],
+  ["英规插座+总开关","UK Socket + Power Switch"],["总开关+指示灯","Power Switch + Indicator Light"],
+  ["2年质保","2-Year Warranty"],["3年质保","3-Year Warranty"],["1年质保","1-Year Warranty"],["年质保","-Year Warranty"],
+  ["800+小时","800+ Hours"],["1200+小时","1200+ Hours"],["小时"," Hours"],
+  ["NTC温控器","NTC Thermostat"],["温控器","Thermostat"],
+  ["BLDC电机110000RPM","Brushless Motor 110,000RPM"],["BLDC电机","Brushless Motor"],
+  ["DC电机30000RPM","DC Motor 30,000RPM"],["AC电机50000RPM","AC Motor 50,000RPM"],
+  ["灰色","Grey"],
   ["电机类型","Motor Type"],["电机寿命","Motor Life"],["过热保护","Overheat Protection"],
   ["壁挂功能","Wall-mounted Function"],["挂壁功能","Wall-mounted Function"],
   ["档位功能","Speed Settings Function"],["挂座功能","Hanging Function"],
@@ -5446,7 +5467,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=136').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=137').catch(function(e){ /* offline not critical */ });
     });
   }
 
