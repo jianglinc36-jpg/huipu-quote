@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v123</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v124</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -1448,6 +1448,12 @@ function applyState(state, withDb){
   // 导致「编辑 / 生成PI」载入云端记录后工作台始终为空（用户看到空预览、无法修改）。
   // 此处把刚写入 localStorage 的清单取回内存，使载入真正生效。
   try{ const arr2=loadJSON(ITEMS_KEY,null); items=Array.isArray(arr2)?arr2.filter(Boolean):[]; }catch(e){ items=[]; }
+  // 规格列顺序规范：载入的旧条目也把 Voltage 行移到 Power 前面
+  try{
+    let ch=false;
+    items.forEach(it=>{ if(Array.isArray(it.specRows)){ const before=JSON.stringify(it.specRows); it.specRows=specOrderVoltageFirst(it.specRows); if(JSON.stringify(it.specRows)!==before) ch=true; it.spec=rowsToText(it.specRows); } });
+    if(ch) saveJSON(ITEMS_KEY, items);
+  }catch(e){}
   // 关键修复（数据保留）：历史记录/草稿在修复时只保留了 spec 文本、删除了 specRows，
   // 而规格列、导出、PI 全部依赖 specRows 渲染。若载入后不重建，参数列会整列空白（即用户反馈的「数据保留问题」）。
   // ensureV2 从 spec 文本自动重建 specRows（并分离包装行、智能去重、补全默认值），让参数正确显示。
@@ -2328,8 +2334,8 @@ function parseLineKV(line){
 }
 function buildSpecRows(p){
   const rows=[];
-  if(p.power) rows.push(["Power",p.power]);
   if(p.voltage) rows.push(["Voltage",p.voltage]);
+  if(p.power) rows.push(["Power",p.power]);
   if(p.windspeed) rows.push(["Wind speed",p.windspeed]);
   if(p.gears) rows.push(["Setting",p.gears]);
   if(p.material) rows.push(["Material",p.material]);
@@ -2341,6 +2347,14 @@ function buildSpecRows(p){
       rows.push(kv[0]? kv : ["Note", kv[1]]);
     });
   }
+  return rows;
+}
+// 规格列排序规范：Voltage 一律排在 Power 之前（用户要求的固定顺序）
+function specOrderVoltageFirst(rows){
+  rows = Array.isArray(rows)? rows : [];
+  const iV = rows.findIndex(r=>Array.isArray(r)&&normSpecKey(r[0])==="voltage");
+  const iP = rows.findIndex(r=>Array.isArray(r)&&normSpecKey(r[0])==="power");
+  if(iV>0 && iP>=0 && iV>iP){ const v=rows.splice(iV,1)[0]; rows.splice(iP,0,v); }
   return rows;
 }
 function buildPackRows(p){
@@ -2575,7 +2589,7 @@ async function addItem(model){
   // 否则才回退旧快照 ov.specRows/ov.pack（员工历史报价时存的参数版本）
   const ADMIN_LIB_KEYS=["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","prod_size","power","voltage","windspeed","gears","material","category","brand","spec_text"];
   const adminTouched = ADMIN_LIB_KEYS.some(k=> ov[k]!==undefined);
-  const specRows = dedupeSpecRows((adminTouched&&p)? buildSpecRows(p) : (ov.specRows? ov.specRows.map(r=>[r[0],r[1]]) : (p? buildSpecRows(p) : [["Power",""],["Voltage",""]])));
+  const specRows = specOrderVoltageFirst(dedupeSpecRows((adminTouched&&p)? buildSpecRows(p) : (ov.specRows? ov.specRows.map(r=>[r[0],r[1]]) : (p? buildSpecRows(p) : [["Voltage",""],["Power",""]]))));
   const packRows = p? buildPackRows(p) : [];
   items.push({
     model: model||"", desc: p? prodName(p) : (model||""), specRows: specRows, spec: rowsToText(specRows),
@@ -2637,12 +2651,34 @@ function dlFor(key){
 /* 参数候选池：管理员模板里的多候选值（DB.specCands）+ 原内置下拉选项 */
 function specValCands(key){
   const nk=normSpecKey(key||""); const out=[];
-  const push=v=>{ v=String(v||"").trim(); if(v&&!out.includes(v)) out.push(v); };
+  const push=v=>{
+    String(v==null?"":v).split(/[、|｜;；]/).map(s=>s.trim()).filter(Boolean).forEach(s=>{ if(!out.includes(s)) out.push(s); });
+  };
+  // 1) 管理员模板候选池
   (DB.specCands||[]).forEach(r=>{ if(r&&r[0]&&normSpecKey(r[0])===nk) (r[1]||[]).forEach(push); });
+  // 2) 资料库现有产品的同名参数值（多值自动拆成候选，保证候选池没同步时也有可选）
+  try{
+    const scanText=(txt)=>{
+      String(txt||"").split("\n").forEach(ln=>{
+        const i=ln.indexOf(":"), i2=ln.indexOf("：");
+        const si=i>=0&&(i2<0||i<i2)?i:i2;
+        if(si>0&&normSpecKey(ln.slice(0,si))===nk) push(ln.slice(si+1));
+      });
+    };
+    const scanObj=(o)=>{
+      if(!o) return;
+      ["power","voltage","windspeed","gears","material","frequency","category","brand"].forEach(k=>{ if(normSpecKey(k)===nk&&o[k]) push(o[k]); });
+      if(Array.isArray(o.specRows)) o.specRows.forEach(r=>{ if(Array.isArray(r)&&normSpecKey(r[0])===nk) push(r[1]); });
+      if(typeof o.spec_text==="string") scanText(o.spec_text);
+    };
+    Object.keys(DB.overrides||{}).slice(0,400).forEach(m=>scanObj(DB.overrides[m]));
+    Object.keys(DB.custom||{}).slice(0,400).forEach(m=>scanObj(DB.custom[m]));
+  }catch(e){}
+  // 3) 内置固定选项
   const FIX={"voltage":"dl-Voltage","frequency":"dl-Frequency","power":"dl-Power","powercord":"dl-Powercord","power cord":"dl-Powercord","color":"dl-Color","plug":"dl-Plug","certification":"dl-Certification"};
   const fid=FIX[nk];
   if(fid){ const fdl=document.getElementById(fid); if(fdl) fdl.querySelectorAll("option").forEach(o=>push(o.value)); }
-  return out;
+  return out.slice(0,300);
 }
 function refreshSpecValDl(key){
   const dl=document.getElementById("dl-specval"); if(!dl) return;
@@ -2663,9 +2699,14 @@ function renderItems(){
       + (it.img? ` <button class="btn sm ghost" data-imgdel="${i}">移除图片</button>`:"")
       + ` <button class="btn sm ghost" data-itdb="${i}" title="把该条目的型号/规格/包装/图片写入资料库">⤴ 入库</button>`;
     const specGrid = (it.specRows||[]).map((r,j)=>{
+      // 每行独立候选列表：渲染时即按参数名生成，点下拉必有所选，不依赖点击时机
+      const dlId = `dl-sr-${i}-${j}`;
+      const cands = specValCands(r[0]);
+      const dlHtml = `<datalist id="${dlId}">${cands.map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`;
       return `<div class="kv">
         <input class="k" data-srk="${i}:${j}" value="${esc(r[0])}" placeholder="参数名">
-        <input class="v" data-srv="${i}:${j}" value="${esc(r[1])}" list="dl-specval" placeholder="值（可选/自填）">
+        <input class="v" data-srv="${i}:${j}" value="${esc(r[1])}" list="${dlId}" placeholder="值（可选/自填）">
+        ${dlHtml}
         <button class="del" data-rmsr="${i}:${j}" title="删除参数">✕</button>
       </div>`;
     }).join("");
@@ -2731,7 +2772,10 @@ function renderItems(){
   box.querySelectorAll("[data-srk]").forEach(inp=> inp.oninput=()=>{
     const [i,j]=inp.dataset.srk.split(":").map(Number);
     items[i].specRows[j][0]=inp.value; items[i].spec=rowsToText(items[i].specRows); saveOverride(items[i]); addSpecKey(inp.value); renderPreview(); persistAll();
-    refreshSpecValDl(inp.value); // 参数名改动后，候选值下拉同步切换
+    // 参数名改动后，本行候选下拉同步切换
+    const dl=document.getElementById(`dl-sr-${i}-${j}`);
+    if(dl) dl.innerHTML=specValCands(inp.value).map(v=>`<option value="${esc(v)}">`).join("");
+    refreshSpecValDl(inp.value);
   });
   box.querySelectorAll("[data-srv]").forEach(inp=> inp.oninput=()=>{
     const [i,j]=inp.dataset.srv.split(":").map(Number);
@@ -5114,7 +5158,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=123').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=124').catch(function(e){ /* offline not critical */ });
     });
   }
 
