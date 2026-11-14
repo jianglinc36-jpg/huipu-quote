@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=118').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=119').catch(function () {});
     });
   }
 </script>
@@ -681,20 +681,32 @@ async function renderMembers(M){
 
 /* ---------- 资料库 ---------- */
 var _dbSearch="";
+var _dbCat="";
+var PROD_CATS=["壁挂式吹风机","家用吹风机","高速吹风机","AC吹风机","造型器","折叠吹风机"];
 function renderDb(M){
   var customs=Object.keys(DB.custom||{}), ovs=Object.keys(DB.overrides||{}).filter(function(m){ return Object.keys(DB.overrides[m]).some(function(k){return k!=="img";}); });
   var all={}; PRODUCTS.forEach(function(p){ all[p.model]=1; }); customs.forEach(function(m){ all[m]=1; }); ovs.forEach(function(m){ all[m]=1; });
   var isHid=function(m2){ var ov2=DB.overrides[m2]; return !!(ov2&&ov2._hidden); };
   var hiddenCnt=Object.keys(all).filter(isHid).length;
-  var models=Object.keys(all).filter(function(m){ return !isHid(m)&&(!_dbSearch||m.toLowerCase().indexOf(_dbSearch.toLowerCase())>=0); }).sort();
+  var models=Object.keys(all).filter(function(m){
+    if(isHid(m)) return false;
+    if(_dbSearch&&m.toLowerCase().indexOf(_dbSearch.toLowerCase())<0) return false;
+    if(_dbCat){ var pc=(effProduct(m)||{}).category||""; if(pc!==_dbCat) return false; }
+    return true;
+  }).sort();
+  // 分类下拉：预设分类 + 资料库里已有的分类
+  var catSet={}; PROD_CATS.forEach(function(c){ catSet[c]=1; });
+  Object.keys(all).forEach(function(m){ if(isHid(m)) return; var pc=(effProduct(m)||{}).category; if(pc) catSet[pc]=1; });
+  var catOpts=Object.keys(catSet).map(function(c){ return '<option value="'+esc(c)+'"'+(_dbCat===c?' selected':'')+'>'+esc(c)+'</option>'; }).join("");
   var h='<div class="card"><div class="bar">'
     +'<input id="dbSearch" placeholder="搜索型号" style="width:180px" value="'+esc(_dbSearch)+'">'
+    +'<select id="dbCat" style="width:150px"><option value="">全部类别</option>'+catOpts+'</select>'
     +'<button class="btn sm" id="dbAdd">＋ 新增产品</button>'
     +'<button class="btn sm ghost" id="dbBatchDel">批量删除</button>'
     +'<button class="btn sm ghost" id="dbBatchEdit">批量修改参数</button>'
     +'<button class="btn sm ghost" id="dbBatchSpec">批量设定规格参数</button>'
     +'<button class="btn sm" id="dbTpl">固定参数模板</button>'
-    +'<span class="hint">内置 '+PRODUCTS.length+' · 自定义 '+customs.length+' · 有覆盖 '+ovs.length+'</span>'
+    +'<span class="hint">内置 '+PRODUCTS.length+' · 自定义 '+customs.length+' · 有覆盖 '+ovs.length+' · 当前显示 '+models.length+'</span>'
     +'<span style="flex:1"></span><span class="hint">先勾选产品，再用上面的批量按钮 · 改动保存后员工端打开报价软件即自动同步</span></div>';
   if(hiddenCnt) h+='<div class="hint" style="margin-top:6px">已隐藏 '+hiddenCnt+' 个内置产品（批量删除所致，仍在报价软件历史报价中可用） <button class="btn sm ghost" id="dbUnhide">还原全部隐藏</button></div>';
   h+='<div class="tblwrap"><table><thead><tr><th style="width:34px"><input type="checkbox" id="dbSelAll" title="全选/全不选"></th><th>图</th><th class="l">型号</th><th class="l">类别</th><th>功率/电压</th><th>装箱量</th><th>底价RMB</th><th>底价USD</th><th>来源</th><th>操作</th></tr></thead><tbody>';
@@ -713,6 +725,7 @@ function renderDb(M){
   h+='</tbody></table></div></div>';
   M.innerHTML=h;
   $("dbSearch").oninput=function(){ _dbSearch=this.value; clearTimeout(renderDb._t); renderDb._t=setTimeout(function(){ showTab("db"); },300); };
+  $("dbCat").onchange=function(){ _dbCat=this.value; showTab("db"); };
   $("dbAdd").onclick=function(){ editProduct("",true); };
   $("dbSelAll").onchange=function(){ var on=this.checked; document.querySelectorAll(".dbChk").forEach(function(c){ c.checked=on; }); };
   $("dbBatchDel").onclick=batchDeleteSel;
@@ -749,10 +762,11 @@ function editProduct(m,isNew){
   PROD_FIELDS.forEach(function(f){
     var k=f[0],v=p[k]!=null?p[k]:"";
     if(k==="model") h+='<label>'+esc(f[1])+'<input id="pf_'+k+'" value="'+esc(v)+'"'+(isNew?"":" readonly")+'></label>';
+    else if(k==="category") h+='<label>'+esc(f[1])+'<input id="pf_'+k+'" list="pfCats" value="'+esc(v)+'" placeholder="可选择或直接输入"></label>';
     else h+='<label>'+esc(f[1])+'<input id="pf_'+k+'" value="'+esc(v)+'"></label>';
   });
   var spLines=parseSpecLines(p.spec_text);
-  h+='</div>'
+  h+='</div><datalist id="pfCats">'+PROD_CATS.map(function(c){ return '<option value="'+esc(c)+'">'; }).join("")+'</datalist>'
    +'<div style="margin:10px 0 4px"><b>规格参数</b> <span class="hint">（每行一条，可添加/删除，以「参数名: 参数值」格式保存）</span></div>'
    +'<div id="pfSpecRows">'+spLines.map(function(r){ return specRowHtml(r[0],r[1]); }).join("")+'</div>'
    +'<button type="button" class="btn sm ghost" id="pfSpecAdd" style="margin-top:6px">＋ 添加参数</button>'
@@ -941,7 +955,11 @@ function batchEditFields(){
   var h='<h3>批量修改 / 删除参数 · 已选 '+ms.length+' 个产品</h3>'
    +'<div class="hint" style="margin-bottom:6px">修改：只填写需要修改的字段，留空保持原样。删除：在下方勾选要删除（清空）的字段。两者可同时使用。</div><div class="fgrid">';
   BATCH_FIELDS.forEach(function(f){
-    h+='<label>'+esc(f[1])+'<input id="bf_'+f[0]+'"></label>';
+    if(f[0]==="category"){
+      h+='<label>'+esc(f[1])+'<select id="bf_category"><option value="">（不修改）</option>'+PROD_CATS.map(function(c){ return '<option value="'+esc(c)+'">'+esc(c)+'</option>'; }).join("")+'</select></label>';
+    } else {
+      h+='<label>'+esc(f[1])+'<input id="bf_'+f[0]+'"></label>';
+    }
   });
   h+='</div>'
    +'<div style="margin:10px 0 4px"><b>删除字段</b> <span class="hint">（勾选=把所选产品的这个字段清空）</span></div><div class="fgrid">';
