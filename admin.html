@@ -89,7 +89,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   // PWA: 注册 Service Worker，使后台页可被「安装为 App」（Chrome/Edge 显示安装入口）
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js?v=117').catch(function () {});
+      navigator.serviceWorker.register('./sw.js?v=118').catch(function () {});
     });
   }
 </script>
@@ -827,6 +827,8 @@ function batchWriteField(m,k,v){
 }
 function normSpecKey2(k){ return String(k||"").trim().toLowerCase().replace(/[\s:：]+/g,""); }
 /* ---------- 固定参数模板 ---------- */
+// 手写清单新增的常用固定字段（无内置产品字段对应，应用时并入规格参数）
+var TPL_EXTRA_FIELDS=["噪音","电机类型","电机寿命","过热保护","线长","认证","颜色","壁挂功能","保修"];
 var TPL_FIELD_LABELS={};
 BATCH_FIELDS.forEach(function(f){ TPL_FIELD_LABELS[f[1]]=f[0]; TPL_FIELD_LABELS[f[0]]=f[0]; });
 function tplFieldRowHtml(name,value){
@@ -865,10 +867,18 @@ function openTemplate(){
     if(hasSaved){ if(v!=="") rows.push(tplFieldRowHtml(f[1],v)); } // 已存模板：只显示已固定的字段
     else rows.push(tplFieldRowHtml(f[1],"")); // 首次打开：列出全部内置字段供挑选
   });
-  tc.forEach(function(r){ rows.push(tplFieldRowHtml(r[0],r[1])); });
+  TPL_EXTRA_FIELDS.forEach(function(n){
+    var hit=tc.filter(function(r){ return r[0]===n; })[0];
+    if(hasSaved){ if(hit) rows.push(tplFieldRowHtml(n,hit[1])); }
+    else rows.push(tplFieldRowHtml(n,""));
+  });
+  tc.forEach(function(r){ // 其余自定义字段（不在常用清单里的）
+    if(TPL_EXTRA_FIELDS.indexOf(r[0])>=0) return;
+    rows.push(tplFieldRowHtml(r[0],r[1]));
+  });
   var h='<h3>固定参数模板</h3>'
    +'<div class="hint" style="margin-bottom:6px">设定一套固定参数：①保存后，新增产品自动带入这些值；②先在资料库列表勾选产品，再点「应用到勾选产品」一键套用。固定字段每行可删除（点「删」），点「＋ 添加字段」可加内置字段或自定义字段。</div>'
-   +'<datalist id="tplFieldNames">'+BATCH_FIELDS.map(function(f){ return '<option value="'+esc(f[1])+'">'; }).join("")+'</datalist>'
+   +'<datalist id="tplFieldNames">'+BATCH_FIELDS.map(function(f){ return '<option value="'+esc(f[1])+'">'; }).join("")+TPL_EXTRA_FIELDS.map(function(n){ return '<option value="'+esc(n)+'">'; }).join("")+'</datalist>'
    +'<div style="margin:6px 0 4px"><b>固定字段</b> <span class="hint">（字段名可下拉选择内置字段，也可自己输入；留空的行保存时忽略）</span></div>'
    +'<div id="tpFieldRows">'+rows.join("")+'</div>'
    +'<button type="button" class="btn sm ghost" id="tpFieldAdd" style="margin-top:2px">＋ 添加字段</button>'
