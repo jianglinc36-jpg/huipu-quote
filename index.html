@@ -2646,6 +2646,7 @@ async function addItem(model){
   dedupeItemSmart(items[items.length-1]); // 强制智能去重（规格/包装跨列）
   items[items.length-1]._dbSig=JSON.stringify(items[items.length-1].specRows); // v131：记录后台参数基线，用于后台更新后自动同步
   items[items.length-1]._tplRev=tplRev(); // v136：记录模板版本，模板变更时强制按模板重建
+  try{ items[items.length-1]._dbOnlySig=JSON.stringify(tplSigForModel(model)); }catch(e){}
   // new model not in built-in library -> register into local DB for next time
   if(model && !PROD_MAP[model] && !DB.custom[model]){
     DB.custom[model] = {model:model, category:"自定义", brand:"本地", moq:(p&&p.moq)||""};
@@ -2690,7 +2691,8 @@ function refreshItemFromDb(it){
   }
   if(!rows.length) return false;
   it.specRows=rows; it.spec=rowsToText(rows);
-  it._dbSig=JSON.stringify(tplSigForModel(it.model));
+  it._dbSig=JSON.stringify(rows);            // 本次实际落地的参数行（用于判断用户是否手动改过）
+  it._dbOnlySig=JSON.stringify(tplSigForModel(it.model)); // 模板+资料库指纹（用于判断后台是否有更新）
   it._tplRev=tplRev();
   // 注意：pack / packing / 净毛重 / 内盒 / 外箱尺寸等装箱参数一律不动（用户明确要求）
   return true;
@@ -2711,11 +2713,12 @@ function autoSyncItemsFromDb(){
     if(!it._dbSig) it._dbSig=JSON.stringify(it.specRows||[]); // 旧条目补记基线
     const p=effProduct(it.model); if(!p) return;
     const nb=JSON.stringify(tplSigForModel(it.model));
+    if(!it._dbOnlySig) it._dbOnlySig=nb;      // 旧条目：以当前后台状态为基线，避免误判
     let untouched=(JSON.stringify(it.specRows)===it._dbSig);
     if(!untouched&&scrubbed){
       try{ const tmp={specRows:JSON.parse(it._dbSig)}; scrubSpecValues(tmp); untouched=(JSON.stringify(it.specRows)===JSON.stringify(tmp.specRows)); }catch(e){}
     }
-    if(nb!==it._dbSig && untouched){
+    if(nb!==it._dbOnlySig && untouched){
       if(refreshItemFromDb(it)){ try{ saveOverride(it); }catch(e){} auto++; }
     }
   });
