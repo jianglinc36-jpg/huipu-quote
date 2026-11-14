@@ -234,9 +234,10 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v139</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v140</span></div>
   </div>
   <div style="text-align:right">
+    <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
     <div class="sub" id="dbStat"></div>
     <div class="sub" id="accountBar"></div>
@@ -5549,7 +5550,19 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=139').catch(function(e){ /* offline not critical */ });
+      try{
+        navigator.serviceWorker.register('./sw.js?v=140', { updateViaCache: 'none' }).then(function(reg){
+          try{ if(reg && reg.update) reg.update(); }catch(e){}
+        }).catch(function(e){ /* offline not critical */ });
+      }catch(e){}
+      // 新版 SW 接管后自动刷新一次（拿新页面），避免一直跑旧代码
+      try{
+        navigator.serviceWorker.addEventListener('controllerchange', function(){
+          if(window.__hpSwReloading) return;
+          window.__hpSwReloading = true;
+          setTimeout(function(){ try{ location.replace(location.origin + location.pathname + '?sw=' + Date.now()); }catch(e){} }, 200);
+        });
+      }catch(e){}
     });
   }
 
@@ -5728,6 +5741,174 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     // iOS 不触发 beforeinstallprompt，直接给出安装按钮（点击给指引）
     if(isIOS()){ setTimeout(ensureBtn, 800); }
   })();
+</script>
+<script>
+/* ===== v140 APP 自更新模块 =====
+   目的：后台改了设置/模板后，APP 只要打开就自动换成最新代码，不再卡在旧版导致不能正常使用。
+   机制：1) 读同目录 version.json（no-store，绕过 SW 与 HTTP 缓存）比对内置版本；
+        2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
+        3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
+(function(){
+  var APP_VER = 140;
+  var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
+  var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
+  var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
+  var _busy = false, _remoteVer = 0, _banner = null, _hiddenUntil = 0;
+
+  function now(){ return Date.now(); }
+  function ls(k, v){
+    try{
+      if(v === undefined) return localStorage.getItem(k);
+      localStorage.setItem(k, v);
+      return v;
+    }catch(e){ return null; }
+  }
+  function toast(t, ms){
+    try{ if(window.hpToast){ hpToast(t, ms || 5000); return; } }catch(e){}
+    try{ console.log('[update] ' + t); }catch(e){}
+  }
+  function verTextEl(){
+    var el = document.getElementById('verText');
+    if(el) el.textContent = '版本 v' + APP_VER;
+  }
+
+  function ensureBanner(rv){
+    if(_banner && document.body.contains(_banner)){
+      var v0 = _banner.querySelector('#hpUpdVer');
+      if(v0) v0.textContent = 'v' + rv;
+      return _banner;
+    }
+    var d = document.createElement('div');
+    d.id = 'hpUpdBanner';
+    d.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#0f2e4a;color:#fff;'
+      + 'padding:11px 14px;font-size:13px;line-height:1.5;display:flex;align-items:center;gap:10px;'
+      + 'box-shadow:0 -6px 20px rgba(0,0,0,.28);flex-wrap:wrap;font-family:inherit';
+    d.innerHTML = '<span style="flex:1;min-width:200px">🔔 检测到新版本 <b id="hpUpdVer">v' + rv + '</b>，'
+      + '更新后才能拿到后台最新设置。</span>'
+      + '<button id="hpUpdGo" style="background:#ffb703;border:none;color:#1b1b1b;font-weight:700;'
+      + 'padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px">立即更新</button>'
+      + '<button id="hpUpdLater" style="background:transparent;border:1px solid #7f9ab3;color:#dbe8f4;'
+      + 'padding:7px 12px;border-radius:8px;cursor:pointer;font-size:13px">稍后</button>';
+    document.body.appendChild(d);
+    d.querySelector('#hpUpdGo').onclick = function(){ window.hpApplyUpdate(); };
+    d.querySelector('#hpUpdLater').onclick = function(){
+      _hiddenUntil = now() + 30 * 60 * 1000;
+      try{ d.remove(); }catch(e){}
+    };
+    _banner = d;
+    return d;
+  }
+
+  // 彻底换新：注销 SW、清空所有缓存，再用带时间戳的地址重载
+  window.hpApplyUpdate = function(){
+    ls('huipu_auto_upd_at', String(now()));
+    var fired = false;
+    function go(){
+      if(fired) return;
+      fired = true;
+      var u = location.origin + location.pathname + '?v=' + (_remoteVer || (APP_VER + 1)) + '&t=' + now();
+      location.replace(u);
+    }
+    try{
+      var jobs = [];
+      if(window.caches && caches.keys){
+        jobs.push(caches.keys().then(function(ks){
+          return Promise.all(ks.map(function(k){ return caches.delete(k); }));
+        }));
+      }
+      if(navigator.serviceWorker && navigator.serviceWorker.getRegistrations){
+        jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){
+          return Promise.all(rs.map(function(r){ return r.unregister(); }));
+        }));
+      }
+      if(jobs.length){
+        Promise.all(jobs).then(go).catch(go);
+        setTimeout(go, 1200);
+      } else { go(); }
+    }catch(e){ go(); }
+  };
+
+  window.hpAppVer = APP_VER;
+  window.hpCheckUpdate = function(manual){
+    if(_busy) return Promise.resolve(null);
+    _busy = true;
+    ls('huipu_last_chk', String(now()));
+    return fetch('version.json?t=' + now(), { cache: 'no-store' })
+      .then(function(r){
+        if(!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(j){
+        var rv = parseInt((j && j.version), 10) || 0;
+        if(rv > APP_VER){
+          _remoteVer = rv;
+          if(now() > _hiddenUntil) ensureBanner(rv);
+          var last = parseInt(ls('huipu_auto_upd_at') || '0', 10) || 0;
+          var freshOpen = (now() - _bootAt) < BOOT_GRACE;
+          var editing = document.querySelector('input:focus, textarea:focus, select:focus');
+          if(freshOpen && !editing && (now() - last) > AUTO_GAP){
+            toast('检测到新版本 v' + rv + '，正在自动更新…', 3000);
+            setTimeout(window.hpApplyUpdate, 900);
+          }
+          return rv;
+        }
+        if(manual) toast('✅ 已是最新版本 v' + APP_VER, 4000);
+        if(_banner && document.body.contains(_banner)){ try{ _banner.remove(); }catch(e){} _banner = null; }
+        return rv;
+      })
+      .catch(function(e){
+        if(manual) toast('⚠ 检查更新失败：' + ((e && e.message) || '网络异常') + '（当前 v' + APP_VER + '，离线可继续使用）', 6000);
+        return null;
+      })
+      .then(function(v){ _busy = false; return v; });
+  };
+
+  var _bootAt = now();
+  verTextEl();
+  // Shift + 点「检查更新」= 深度修复：只清缓存/模板缓存，不动报价数据
+  window.hpResetLocalCache = function(){
+    try{
+      var keep = {};
+      ['huipu_user_v1','huipu_login_v1'].forEach(function(k){ try{ keep[k] = localStorage.getItem(k); }catch(e){} });
+      var del = [];
+      try{
+        for(var i=0;i<localStorage.length;i++){
+          var k = localStorage.key(i) || '';
+          if(/^huipu_(tpl_cache|last_err|last_chk|auto_upd)/.test(k)) del.push(k);
+        }
+      }catch(e){}
+      del.forEach(function(k){ try{ localStorage.removeItem(k); }catch(e){} });
+      delete window.__hpSwReloading;
+    }catch(e){}
+    _remoteVer = _remoteVer || (APP_VER + 1);
+    window.hpApplyUpdate();
+  };
+  try{
+    var ub = document.getElementById('updBtn');
+    if(ub) ub.onclick = function(ev){
+      if(ev && ev.shiftKey){
+        if(confirm('深度修复：将清空本机页面缓存与模板缓存（不影响报价数据与云端），然后重新加载最新版。继续？')){
+          toast('正在修复并重新加载…', 2500);
+          window.hpResetLocalCache();
+        }
+        return;
+      }
+      toast('正在检查更新…', 1500);
+      window.hpCheckUpdate(true);
+    };
+  }catch(e){}
+  setTimeout(function(){ try{ if(document.visibilityState !== 'hidden') window.hpCheckUpdate(false); }catch(e){} }, 2500);
+  setInterval(function(){
+    try{ if(document.visibilityState !== 'hidden') window.hpCheckUpdate(false); }catch(e){}
+  }, CHECK_MS);
+  document.addEventListener('visibilitychange', function(){
+    try{
+      if(document.visibilityState !== 'visible') return;
+      var t = parseInt(ls('huipu_last_chk') || '0', 10) || 0;
+      if(now() - t > 60000) window.hpCheckUpdate(false);
+    }catch(e){}
+  });
+})();
 </script>
 </body>
 </html>
