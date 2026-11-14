@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=142', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=143', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v142</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v143</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -302,10 +302,11 @@ async function readState(){
 async function writeStateKeys(patch){
   var cur=await readState();
   var merged=Object.assign({},cur,patch);
-  // v142：候选池只增不减——与云端现有候选取并集后再写，防止本地旧池覆盖后台/前端新增的候选值
+  // v143：候选池（specCands）不再由任何界面改写；后台改动资料库时原样保留云端已有池，
+  // 避免「删掉的值又被并集回来」以及「不同模板的值互相串」。
   try{
-    if(merged[DB_KEY]&&cur[DB_KEY]){
-      merged[DB_KEY].specCands=unionSpecCandsAdmin(cur[DB_KEY].specCands, merged[DB_KEY].specCands);
+    if(merged[DB_KEY]&&cur[DB_KEY]&&merged[DB_KEY].specCands===undefined){
+      merged[DB_KEY].specCands=cur[DB_KEY].specCands||[];
     }
   }catch(e){}
   var ex=await cloud.database.from("quotation_state").select("workspace_id").eq("workspace_id",WS_ID).maybeSingle();
@@ -332,7 +333,9 @@ function splitDbImages(){
 async function saveDb(){
   var s=splitDbImages();
   await writeStateKeys({}); // 先确保行存在
-  var patch={}; patch[DB_KEY]=s.db; patch[DBIMG_KEY]=s.imgs;
+  var patch={}; 
+  var dbOut=Object.assign({},s.db||{}); delete dbOut.specCands; // v143：候选池不随资料库保存改写
+  patch[DB_KEY]=dbOut; patch[DBIMG_KEY]=s.imgs;
   await writeStateKeys(patch);
   badge("资料库已保存并同步到云端 ✓",true);
 }
@@ -973,9 +976,8 @@ function tplPoolValsFor(names){
   return out;
 }
 function tplJoinVals(cur,names){
-  var all=String(cur==null?"":cur).split(/[、|｜;；]/).map(function(s){ return s.trim(); }).filter(Boolean);
-  tplPoolValsFor(names).forEach(function(v){ if(all.indexOf(v)<0) all.push(v); });
-  return all.join("、");
+  // v143：模板彼此独立——只显示本模板自己填写/保留的值，绝不合并其他模板或全局候选池
+  return String(cur==null?"":cur);
 }
 function bindTplFieldRows(){
   document.querySelectorAll("#tpFieldRows .tplDel").forEach(function(b){ b.onclick=function(){ b.closest(".tplFieldRow").remove(); }; });
@@ -1065,7 +1067,7 @@ function openTemplate(){
     rows.push(tplFieldRowHtml(r[0],tplJoinVals(r[1],[r[0]])));
   });
   var h='<h3>固定参数模板</h3>'
-   +'<div class="hint" style="margin-bottom:6px">可保存多套模板（如 家用吹风机 / 壁挂式吹风机 / 高速吹风机 各一套）：下拉切换 → 修改 → 「保存模板」；「存为新模板」把当前内容另存一套；★默认模板用于「新增产品自动带入」。先在资料库列表勾选产品，再点「应用到勾选产品」一键套用。固定字段每行可删除（点「删」），点「＋ 添加字段」可加内置字段或自定义字段。</div>'
+   +'<div class="hint" style="margin-bottom:6px">可保存多套模板（如 家用吹风机 / 壁挂式吹风机 / 高速吹风机 各一套）：下拉切换 → 修改 → 「保存模板」；「存为新模板」把当前内容另存一套；★默认模板用于「新增产品自动带入」。<b>每套模板彼此独立</b>：候选值只属于本模板，保存后就是最终结果（删掉的值不会回来）。先在资料库列表勾选产品，再点「应用到勾选产品」把产品绑定到当前模板。固定字段每行可删除（点「删」），点「＋ 添加字段」可加内置字段或自定义字段。</div>'
    +'<div class="bar" style="margin-bottom:6px">'
    +'<select id="tplSel" style="max-width:220px">'+list.map(function(x,i){ return '<option value="'+i+'"'+(i===_tplIdx?' selected':'')+'>'+esc(x.name)+(x.name===defName?' ★默认':'')+'</option>'; }).join("")+'</select>'
    +'<button class="btn sm ghost" id="tplSaveAs">存为新模板</button>'
@@ -1090,11 +1092,10 @@ function openTemplate(){
   $("tplSaveAs").onclick=async function(){
     var nm=prompt("新模板名称：", list[_tplIdx].name+" 副本"); if(!nm||!nm.trim()) return;
     var t2=readTplInputs();
-    var pool=tplPoolFrom(t2); // 多候选值同样收割进候选池，模板只保留第一个值
-    mergePool(pool); // 候选池合并进资料库（v128 修复：存为新模板此前漏了这步，导致下拉无候选）
+    // v143：模板「所见即所存」，候选值留在本模板内，不写全局候选池、不影响其他模板
     list.push({name:nm.trim(),fields:t2.fields,customFields:t2.customFields,spec:t2.spec});
     _tplIdx=list.length-1;
-    try{ await saveSys(); if(DB.specCands&&DB.specCands.length) await saveDb(); badge("已保存新模板「"+nm.trim()+"」 ✓（候选值已同步报价软件）",true); openTemplate(); }catch(e){ alert("保存失败："+(e.message||e)); }
+    try{ await saveSys(); badge("已保存新模板「"+nm.trim()+"」 ✓（候选值仅属于本模板）",true); openTemplate(); }catch(e){ alert("保存失败："+(e.message||e)); }
   };
   $("tplDefault").onclick=async function(){
     SYS.settings.dbTemplateDefault=list[_tplIdx].name;
@@ -1110,32 +1111,30 @@ function openTemplate(){
   };
   $("tpSave").onclick=async function(){
     var t2=readTplInputs();
-    // 固定字段里的多候选值（、分隔）：收割进候选池，模板字段只保留第一个值
-    var pool=tplPoolFrom(t2);
+    // v143：模板所见即所存——输入框里的全部值只保存在本模板，「、」分隔的可选值也只属于本模板
     list[_tplIdx].fields=t2.fields; list[_tplIdx].customFields=t2.customFields; list[_tplIdx].spec=t2.spec;
-    // 默认模板同时写入旧字段（兼容新增产品预填）
-    if(defaultTpl(list)===list[_tplIdx]) SYS.settings.dbTemplate={fields:t2.fields,customFields:t2.customFields,spec:t2.spec};
-    // 候选池合并进资料库（DB.specCands），员工端报价软件参数值下拉可直接选取（合并不清掉其他模板的候选）
-    mergePool(pool);
+    // 默认模板同时写入旧字段（兼容新增产品预填）：多候选只取第一个
+    if(defaultTpl(list)===list[_tplIdx]){
+      var lf={}; Object.keys(t2.fields).forEach(function(k){ lf[k]=firstCandidate(t2.fields[k]); });
+      SYS.settings.dbTemplate={fields:lf,customFields:t2.customFields,spec:t2.spec};
+    }
     try{
       await saveSys();
-      if(DB.specCands&&DB.specCands.length) await saveDb();
-      closeModal(); badge("模板「"+list[_tplIdx].name+"」已保存 ✓（候选值已同步报价软件）",true);
+      closeModal(); badge("模板「"+list[_tplIdx].name+"」已保存 ✓（候选值仅属于本模板）",true);
     }catch(e){ alert("保存失败："+(e.message||e)); }
   };
   $("tpApply").onclick=async function(){
     var ms=selectedModels();
     if(!ms.length){ alert("请先在资料库列表勾选要应用的产品，再打开本模板点「应用到勾选产品」"); return; }
     var t2=readTplInputs();
-    // 固定字段/规格参数里的多候选值：收割进候选池，产品只写第一个值（其余在报价软件下拉选取）
-    var pool=tplPoolFrom(t2);
-    mergePool(pool);
-    // 模板值可能是多个候选（用「、」分隔）——应用到产品时取第一个作为默认值
+    // v143：候选值随模板走（不写全局池）——应用到产品时只写第一个值，产品同时记下所用模板名，
+    // 报价软件按这个模板取该产品的下拉候选，各分类产品互不串值。
     var extra=(t2.spec||[]).concat(t2.customFields||[]).map(function(r){ return [r[0],firstCandidate(r[1])]; });
     if(!Object.keys(t2.fields).length&&!extra.length){ alert("模板为空，没有可应用的内容"); return; }
-    if(!confirm("把模板参数应用到勾选的 "+ms.length+" 个产品？\n内置字段=非空项覆盖；自定义字段与规格参数=同名以模板为准、其余保留。")) return;
+    if(!confirm("把模板「"+list[_tplIdx].name+"」应用到勾选的 "+ms.length+" 个产品？\n内置字段=非空项覆盖；自定义字段与规格参数=同名以模板为准、其余保留。\n应用后这些产品在报价软件里只使用本模板的参数候选。")) return;
     ms.forEach(function(m){
-      Object.keys(t2.fields).forEach(function(k){ batchWriteField(m,k,t2.fields[k]); });
+      Object.keys(t2.fields).forEach(function(k){ batchWriteField(m,k,firstCandidate(t2.fields[k])); });
+      batchWriteField(m,"_tpl",list[_tplIdx].name); // 绑定模板
       if(extra.length){
         var p=effProduct(m)||{}, map={}, order=[], out=[];
         parseSpecLines(p.spec_text).forEach(function(r){
@@ -1147,7 +1146,7 @@ function openTemplate(){
         batchWriteField(m,"spec_text",out.join("\n"));
       }
     });
-    try{ await saveDb(); closeModal(); badge("模板已应用到 "+ms.length+" 个产品 ✓",true); showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
+    try{ await saveDb(); closeModal(); badge("模板「"+list[_tplIdx].name+"」已应用到 "+ms.length+" 个产品 ✓（已绑定该模板）",true); showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
   };
 }
 function batchDeleteSel(){
@@ -1422,7 +1421,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 142, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 143, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
