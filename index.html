@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v138</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v139</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -2938,7 +2938,18 @@ function refreshSpecValDl(key){
    自定义弹层：点击/聚焦即显示全部候选，输入时才过滤，点选后直接写入。 */
 let specDD=null;
 function closeSpecDD(){ if(specDD){ specDD.remove(); specDD=null; } }
+/* v138：点开参数下拉时，任何异常（候选数据异常/模板缺失等）都不允许冒到全局变成
+   「页面错误」，只记录 + 顶部轻提示，用户仍可手动输入参数值。 */
 function openSpecDD(inp){
+  try{ return _openSpecDDCore(inp); }
+  catch(e){
+    try{ _lastErr("spec-dd", e); }catch(_){}
+    try{ closeSpecDD(); }catch(_){}
+    try{ syncBadge("⚠ 该参数的候选列表读取失败，可直接手动输入数值"); }catch(_){}
+    return false;
+  }
+}
+function _openSpecDDCore(inp){
   closeSpecDD();
   if(!inp||inp.dataset.srv==null) return;
   const [i,j]=inp.dataset.srv.split(":").map(Number);
@@ -5538,7 +5549,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=138').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=139').catch(function(e){ /* offline not critical */ });
     });
   }
 
