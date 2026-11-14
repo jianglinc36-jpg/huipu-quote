@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v128</div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · 版本 v129</div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="installAppBtn" style="margin-bottom:6px">📲 安装到电脑/手机</button>
@@ -1457,7 +1457,16 @@ function applyState(state, withDb){
   // 关键修复（数据保留）：历史记录/草稿在修复时只保留了 spec 文本、删除了 specRows，
   // 而规格列、导出、PI 全部依赖 specRows 渲染。若载入后不重建，参数列会整列空白（即用户反馈的「数据保留问题」）。
   // ensureV2 从 spec 文本自动重建 specRows（并分离包装行、智能去重、补全默认值），让参数正确显示。
-  if(Array.isArray(items)) items.forEach(it=>{ if(it && typeof it==="object"){ try{ ensureV2(it); }catch(e){} } });
+  if(Array.isArray(items)) items.forEach(it=>{ if(it && typeof it==="object"){ try{ ensureV2(it); }catch(e){} }
+    // v129：载入后同义参数行去重（挂壁功能/壁挂功能 等合并为一条）+ 规范顺序
+    try{
+      if(Array.isArray(it.specRows)){
+        const before=JSON.stringify(it.specRows);
+        it.specRows=dedupeSpecRows(specOrderVoltageFirst(it.specRows));
+        if(JSON.stringify(it.specRows)!==before){ it.spec=rowsToText(it.specRows); }
+      }
+    }catch(e){}
+  });
   renderItems(); renderPreview(); refreshDbInfo();
 }
 let _pushTimer=null;
@@ -2376,14 +2385,28 @@ function rowsToText(rows){ return (rows||[]).filter(r=>r&&(r[0]||r[1])).map(r=>(
 /* 参数去重：同一参数名只保留一条（重名时优先保留有内容的值），无标签行原样保留 */
 function normSpecKey(k){ return String(k||"").trim().toLowerCase().replace(/[\s:：]+/g,""); }
 function dedupeSpecRows(rows){
+  /* v129：同义参数名也合并（挂壁功能≈壁挂功能、Setting≈档位功能 等，经 SPEC_NAME_SYN 归组）；
+     合并时优先保留候选池(DB.specCands)里的规范名作为参数名，值取第一个非空 */
+  let poolNames=null;
+  try{ poolNames=new Set((DB.specCands||[]).map(r=>normSpecKey(r&&r[0]))); }catch(e){ poolNames=new Set(); }
+  const gkey=name=>{
+    const nk=normSpecKey(name);
+    const syn=(typeof SPEC_NAME_SYN!=="undefined")&&SPEC_NAME_SYN[nk];
+    return syn? [nk,normSpecKey(syn)].sort().join("|") : nk;
+  };
   const seen=new Map(), out=[];
   (rows||[]).forEach(r=>{
     if(!r || !Array.isArray(r)) return;
     const k=normSpecKey(r[0]);
     if(!k){ out.push([r[0],r[1]]); return; }
-    const at=seen.get(k);
-    if(at===undefined){ seen.set(k,out.length); out.push([r[0],r[1]]); }
-    else if(!String(out[at][1]||"").trim() && String(r[1]||"").trim()){ out[at]=[r[0],r[1]]; }
+    const g=gkey(r[0]);
+    const at=seen.get(g);
+    if(at===undefined){ seen.set(g,out.length); out.push([r[0],r[1]]); }
+    else{
+      const cur=out[at];
+      if(poolNames.has(k) && !poolNames.has(normSpecKey(cur[0]))) cur[0]=r[0]; // 名字取候选池规范名
+      if(!String(cur[1]||"").trim() && String(r[1]||"").trim()) cur[1]=r[1];   // 值取第一个非空
+    }
   });
   return out;
 }
@@ -5192,7 +5215,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   // file:// 双击打开时浏览器不允许注册 SW（会抛安全错误），直接跳过——不影响本地使用
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
-      navigator.serviceWorker.register('./sw.js?v=128').catch(function(e){ /* offline not critical */ });
+      navigator.serviceWorker.register('./sw.js?v=129').catch(function(e){ /* offline not critical */ });
     });
   }
 
