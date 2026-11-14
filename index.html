@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v141</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v142</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -1549,6 +1549,25 @@ async function doPushCloud(){
     return false;
   }
 }
+// v142：候选池（specCands）只增不减——上传前与云端做并集。
+// 此前员工端每次同步都用本地的（常为空的）候选池整体覆盖云端，
+// 把后台模板「A、B、C」拆值收割进池的候选全部清掉 → 下拉/模板永远只剩一个值。
+function unionSpecCands(a,b){
+  const out=[]; const idx={};
+  const kOf=n=>{ let g=""; try{ g=specGroupKey(n)||""; }catch(e){} if(g) return "g:"+g; return "s:"+normSpecKey(n); };
+  const addOne=arr=>{
+    (Array.isArray(arr)?arr:[]).forEach(r=>{
+      if(!r||!r[0]) return;
+      const k=kOf(r[0]);
+      if(!(k in idx)){ idx[k]=[r[0],[]]; out.push(idx[k]); }
+      const vs=Array.isArray(r[1])?r[1]:[r[1]];
+      vs.forEach(v=>{ let x=""; try{ x=cleanVal(v)||""; }catch(e){ x=String(v==null?"":v).trim(); }
+        if(x&&idx[k][1].indexOf(x)<0) idx[k][1].push(x); });
+    });
+  };
+  addOne(a); addOne(b);
+  return out;
+}
 async function _doPushCloudCore(){
   if(!cloudReady() || !WS.loaded || WS.locked) return;
   const { data: session } = await cloud.auth.getSession(); if(!session) return;
@@ -1556,7 +1575,16 @@ async function _doPushCloudCore(){
   if(!WS.isOwner){ debouncedLive(); return; } // 员工独立清单：修改实时同步自己的云端存档，不覆盖管理员工作区
   const payload = { workspace_id: WS_ID, owner_id: WS.uid, data: gatherState(), updated_at: new Date().toISOString() };
   try{
-    const { data: rows } = await cloud.database.from("quotation_state").select("workspace_id").eq("workspace_id", WS_ID).maybeSingle();
+    const { data: rows } = await cloud.database.from("quotation_state").select("workspace_id,data").eq("workspace_id", WS_ID).maybeSingle();
+    // v142：上传前保护候选池——云端已有候选与本机候选取并集后再上传，绝不整体覆盖
+    try{
+      const cdb=rows&&rows.data&&rows.data[DB_KEY];
+      const ldb=payload.data&&payload.data[DB_KEY];
+      if(cdb||ldb){
+        const uni=unionSpecCands(cdb&&cdb.specCands, (ldb&&ldb.specCands)||(DB&&DB.specCands));
+        payload.data[DB_KEY]=Object.assign({}, cdb||{}, ldb||{}, { specCands: uni });
+      }
+    }catch(e){ console.warn("specCands union failed", e); }
     if(rows){
       const { error } = await cloud.database.from("quotation_state").update(payload).eq("workspace_id", WS_ID);
       if(error) throw error;
@@ -5551,7 +5579,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=141', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=142', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5749,7 +5777,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 141;
+  var APP_VER = 142;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
