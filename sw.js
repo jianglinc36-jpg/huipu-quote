@@ -1,4 +1,4 @@
-const CACHE = 'huipu-quote-v139';
+const CACHE = 'huipu-quote-v140';
 const ASSETS = ['./index.html', './admin.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
   './vendor/xlsx.full.min.js', './vendor/pdf.min.js', './vendor/pdf.worker.min.js', './vendor/mammoth.browser.min.js',
   './vendor/html2canvas.min.js', './vendor/jspdf.umd.min.js', './vendor/supabase.min.js'];
@@ -19,6 +19,10 @@ self.addEventListener('activate', function (e) {
   );
 });
 
+self.addEventListener('message', function (e) {
+  if (e.data && e.data.type === 'SKIP_WAITING') { try { self.skipWaiting(); } catch (err) {} }
+});
+
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return; // POST/PUT/DELETE 等写请求直连，不进 SW
   const url = new URL(e.request.url);
@@ -28,12 +32,19 @@ self.addEventListener('fetch', function (e) {
     if (e.request.headers.get('authorization') || e.request.headers.get('x-api-key')) return;
   } catch (err) {}
   if (/\/(api|rest|database|auth|storage|functions)(\/|$)/.test(url.pathname)) return;
-  // 主页面：网络优先，失败才用「自己」的缓存 —— admin 和 index 各自独立，绝不串页
+  // 版本清单：永远走网络，绝不缓存（用来判断 APP 是否有新版）
+  if (url.pathname.endsWith('version.json')) {
+    e.respondWith(fetch(e.request, { cache: 'no-store' }).catch(function () {
+      return new Response('{"version":0}', { headers: { 'Content-Type': 'application/json' } });
+    }));
+    return;
+  }
+  // 主页面：网络优先（强制绕过浏览器 HTTP 缓存，GitHub Pages 默认 max-age=600 会导致改了看不到），失败才用缓存
   const isAdmin = url.pathname.endsWith('admin.html');
   if (isAdmin || url.pathname.endsWith('index.html') || url.pathname === '/' || url.pathname.endsWith('/huipu-quote/') || e.request.mode === 'navigate') {
     const selfKey = isAdmin ? './admin.html' : './index.html';
     e.respondWith(
-      fetch(e.request).then(function (resp) {
+      fetch(e.request, { cache: 'no-store' }).then(function (resp) {
         if (resp && resp.ok) { // 只缓存成功响应，绝不把 404/错误页写进缓存
           const cp = resp.clone();
           caches.open(CACHE).then(function (c) { c.put(selfKey, cp); });
