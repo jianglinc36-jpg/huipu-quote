@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v145</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v146</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -1584,7 +1584,11 @@ async function _doPushCloudCore(){
       if(cdb||ldb){
         payload.data[DB_KEY]=Object.assign({}, cdb||{}, ldb||{}, { specCands: (cdb&&cdb.specCands)||[] });
       }
-    }catch(e){ console.warn("specCands preserve failed", e); }
+      // v146：图片字典逐型号合并——后台刚上传的图不再被本机旧字典整体抹掉
+      //（并集：本机新增的图照常上传；云端有而本机暂缺的图原样保留）
+      const limg=payload.data[DBIMG_KEY]||{}, cimg=(rows&&rows.data&&rows.data[DBIMG_KEY])||{};
+      payload.data[DBIMG_KEY]=Object.assign({}, cimg, limg);
+    }catch(e){ console.warn("specCands/imgs preserve failed", e); }
     if(rows){
       const { error } = await cloud.database.from("quotation_state").update(payload).eq("workspace_id", WS_ID);
       if(error) throw error;
@@ -2763,12 +2767,19 @@ function refreshItemFromDb(it){
   it._dbSig=JSON.stringify(rows);            // 本次实际落地的参数行（用于判断用户是否手动改过）
   it._dbOnlySig=JSON.stringify(tplSigForModel(it.model, tp)); // 模板+资料库指纹（用于判断后台是否有更新）
   it._tplRev=tplRevOf(tp);
+  // v146：图片跟随资料库——后台换了图，条目自动跟上
+  //（前端手动上传/换一张/移除图片时本就会同步写入资料库，所以不会误覆盖用户选择）
+  try{
+    const di=(DB.overrides[it.model]||{}).img||"";
+    if(di && di!==it.img){ it.img=di; it.imgIdx=0; }
+    it._imgSig=di||it.img||"";
+  }catch(e){}
   // 注意：pack / packing / 净毛重 / 内盒 / 外箱尺寸等装箱参数一律不动（用户明确要求）
   return true;
 }
 // 自动同步：只同步「参数与基线一致（未手动改过）」的条目；手动改过的不动（可用「↻ 后台参数」手动刷新）
 function autoSyncItemsFromDb(){
-  let auto=0, scrubbedAny=false;
+  let auto=0, scrubbedAny=false, imgAuto=0;
   items.forEach(it=>{
     if(!it||!it.model) return;
     // v143：每条产品只比对自己所用模板的版本，模板之间不互相触发
@@ -2782,6 +2793,13 @@ function autoSyncItemsFromDb(){
     }
     if(!it._dbSig) it._dbSig=JSON.stringify(it.specRows||[]); // 旧条目补记基线
     const p=effProduct(it.model); if(!p) return;
+    // v146：图片跟随——后台换图后，已有条目的图片自动更新（不影响参数 _dbSig 机制）
+    try{
+      const di=(DB.overrides[it.model]||{}).img||"";
+      if(!it._imgSig) it._imgSig=di||it.img||"";
+      if(di && di!==it._imgSig && di!==it.img){ it.img=di; it.imgIdx=0; imgAuto++; }
+      it._imgSig=di||it.img||"";
+    }catch(e){}
     const nb=JSON.stringify(tplSigForModel(it.model, tp));
     if(!it._dbOnlySig) it._dbOnlySig=nb;      // 旧条目：以当前后台状态为基线，避免误判
     let untouched=(JSON.stringify(it.specRows)===it._dbSig);
@@ -2792,8 +2810,8 @@ function autoSyncItemsFromDb(){
       if(refreshItemFromDb(it)){ try{ saveOverride(it); }catch(e){} auto++; }
     }
   });
-  if(auto) syncBadge("⇩ 已按后台模板重建 "+auto+" 个型号的参数（装箱信息未动）");
-  if(auto||scrubbedAny){ persistAll(); renderItems(); renderPreview(); }
+  if(auto||imgAuto) syncBadge("⇩ 已按后台更新 "+(auto+imgAuto)+" 个型号"+(imgAuto?("（其中 "+imgAuto+" 个为图片更新）"):"（装箱信息未动）"));
+  if(auto||imgAuto||scrubbedAny){ persistAll(); renderItems(); renderPreview(); }
   return auto;
 }
 function syncAllItemsFromDb(){
@@ -5591,13 +5609,16 @@ doPushCloud = async function(){
   try{
     const st=await cloud.database.from("quotation_state").select("workspace_id,data").eq("workspace_id",WS_ID).maybeSingle();
     const ex=(st&&st.data&&st.data.data)||{};
-    const merged=Object.assign({},ex,gatherState()); // 保留后台键（huipu_sys_v1 等），本机键覆盖
+    const _gs=gatherState();
+    const merged=Object.assign({},ex,_gs); // 保留后台键（huipu_sys_v1 等），本机键覆盖
     // v143：候选池以云端为准——前端永不改写 specCands（模板候选值只由后台模板管理，
     // 本地旧池若随 payload 上传，会把云端池整体抹掉/串回旧值）
     try{
       if(merged[DB_KEY]){
         merged[DB_KEY]=Object.assign({}, merged[DB_KEY], { specCands: (ex[DB_KEY]&&ex[DB_KEY].specCands)||[] });
       }
+      // v146：图片字典逐型号并集——后台刚上传的图不再被本机旧字典整体抹掉
+      merged[DBIMG_KEY]=Object.assign({}, ex[DBIMG_KEY]||{}, _gs[DBIMG_KEY]||{});
     }catch(e){}
     const payload={ workspace_id:WS_ID, owner_id:WS.uid, data:merged, updated_at:new Date().toISOString() };
     if(st&&st.data){ const { error }=await cloud.database.from("quotation_state").update(payload).eq("workspace_id",WS_ID); if(error) throw error; }
@@ -5625,7 +5646,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=145', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=146', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5823,7 +5844,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 145;
+  var APP_VER = 146;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
