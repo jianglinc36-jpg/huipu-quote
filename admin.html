@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=146', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=147', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v146</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v147</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -731,13 +731,110 @@ async function renderMembers(M){
 var _dbSearch="";
 var _dbCat="";
 var PROD_CATS=["壁挂式吹风机","家用吹风机","高速吹风机","AC吹风机","造型器","折叠吹风机"];
+/* v147：全部已知类别 = 预设 + 后台手动新增（SYS.settings.dbCats）+ 资料库产品在用的类别 */
+function knownCats(){
+  var set={};
+  (PROD_CATS||[]).forEach(function(c){ if(c) set[c]=1; });
+  var dc=(SYS.settings&&SYS.settings.dbCats)||[];
+  (Array.isArray(dc)?dc:[]).forEach(function(c){ if(c) set[c]=1; });
+  Object.keys(DB.custom||{}).concat(Object.keys(DB.overrides||{})).forEach(function(m){ var pc=(effProduct(m)||{}).category; if(pc) set[pc]=1; });
+  return Object.keys(set).sort();
+}
+function allDbModels(){
+  var all={}; PRODUCTS.forEach(function(p){ all[p.model]=1; });
+  Object.keys(DB.custom||{}).forEach(function(m){ all[m]=1; });
+  Object.keys(DB.overrides||{}).forEach(function(m){ all[m]=1; });
+  return Object.keys(all);
+}
+/* v147：按产品来源把类别写入正确的层（custom 直接改；内置/已改走 overrides，__CLEAR__ 表示清空） */
+function setProductCat(m,newC){
+  if(DB.custom[m]){ if(newC==="") delete DB.custom[m].category; else DB.custom[m].category=newC; }
+  else { var ov=DB.overrides[m]=DB.overrides[m]||{}; ov.category=(newC==="")?"__CLEAR__":newC; }
+}
+/* ---------- v147 类别管理（重命名 / 删除 / 新增） ---------- */
+function catRename(oldC,newC){
+  newC=(newC||"").trim();
+  if(!oldC||!newC||oldC===newC) return 0;
+  var n=0;
+  allDbModels().forEach(function(m){ var p=effProduct(m); if(p&&p.category===oldC){ setProductCat(m,newC); n++; } });
+  // 同名固定参数模板跟着改名（分类自动匹配模板按「类别名=模板名」对应）
+  var tl=(SYS.settings&&SYS.settings.dbTemplates)||[];
+  if(Array.isArray(tl)) tl.forEach(function(t){ if(t&&t.name===oldC) t.name=newC; });
+  if(SYS.settings&&SYS.settings.dbTemplateDefault===oldC) SYS.settings.dbTemplateDefault=newC;
+  var dc=(SYS.settings&&SYS.settings.dbCats)||[];
+  var i=dc.indexOf(oldC); if(i>=0) dc[i]=newC;
+  return n;
+}
+function catDelete(c){
+  var n=0;
+  allDbModels().forEach(function(m){ var p=effProduct(m); if(p&&p.category===c){ setProductCat(m,""); n++; } });
+  var dc=(SYS.settings&&SYS.settings.dbCats)||[];
+  var i=dc.indexOf(c); if(i>=0) dc.splice(i,1);
+  return n;
+}
+function openCatMgr(){
+  var cats=knownCats();
+  var h='<h3>类别管理</h3><div class="hint" style="margin-bottom:8px">重命名 / 删除类别会同步改写所有相关产品（员工端打开报价软件自动跟随）；新增的类别即使还没有产品也会出现在类别下拉里。</div><div id="catMgrRows">';
+  var models=allDbModels();
+  cats.forEach(function(c){
+    var cnt=models.filter(function(m){ var p=effProduct(m); return p&&p.category===c; }).length;
+    h+='<div class="specRow" style="display:flex;gap:6px;margin-top:6px;align-items:center" data-cat="'+esc(c)+'">'
+      +'<input class="cmName" value="'+esc(c)+'" style="flex:1;min-width:140px">'
+      +'<span class="hint" style="flex:none;white-space:nowrap">'+cnt+' 个产品</span>'
+      +'<button type="button" class="btn sm cmRen" style="flex:none">重命名</button>'
+      +'<button type="button" class="btn sm danger cmDel" style="flex:none">删除</button></div>';
+  });
+  h+='</div><div style="display:flex;gap:6px;margin-top:12px;align-items:center">'
+    +'<input id="cmNew" placeholder="新类别名称" style="flex:1;min-width:140px">'
+    +'<button type="button" class="btn sm" id="cmAdd">＋ 新增类别</button></div>'
+    +'<div class="bar"><button class="btn ghost" id="cmClose">关闭</button></div>';
+  openModal(h);
+  $("cmClose").onclick=closeModal;
+  $("cmAdd").onclick=async function(){
+    var v=($("cmNew").value||"").trim();
+    if(!v){ alert("请输入类别名称"); return; }
+    if(knownCats().indexOf(v)>=0){ alert("该类别已存在"); return; }
+    try{
+      if(!SYS.settings) SYS.settings={};
+      if(!Array.isArray(SYS.settings.dbCats)) SYS.settings.dbCats=[];
+      SYS.settings.dbCats.push(v);
+      await saveSys();
+      badge("类别「"+v+"」已添加 ✓",true);
+      openCatMgr();
+    }catch(e){ alert("保存失败："+(e.message||e)); }
+  };
+  document.querySelectorAll("#catMgrRows .specRow").forEach(function(r){
+    var c=r.dataset.cat;
+    r.querySelector(".cmRen").onclick=async function(){
+      var nv=r.querySelector(".cmName").value.trim();
+      if(!nv||nv===c) return;
+      if(!confirm("把类别「"+c+"」重命名为「"+nv+"」？\n相关产品的类别会一并修改；同名固定参数模板也会跟着改名。")) return;
+      try{
+        var n=catRename(c,nv);
+        await saveDb(); await saveSys();
+        badge("已重命名（"+n+" 个产品）✓",true);
+        showTab("db"); openCatMgr();
+      }catch(e){ alert("保存失败："+(e.message||e)); }
+    };
+    r.querySelector(".cmDel").onclick=async function(){
+      if(!confirm("删除类别「"+c+"」？\n该类别下所有产品的类别将被清空（产品本身保留）。")) return;
+      try{
+        var n=catDelete(c);
+        await saveDb(); await saveSys();
+        badge("类别已删除（"+n+" 个产品已清空类别）✓",true);
+        showTab("db"); openCatMgr();
+      }catch(e){ alert("保存失败："+(e.message||e)); }
+    };
+  });
+}
 function renderDb(M){
   var customs=Object.keys(DB.custom||{}), ovs=Object.keys(DB.overrides||{}).filter(function(m){ return Object.keys(DB.overrides[m]).some(function(k){return k!=="img";}); });
   var all={}; PRODUCTS.forEach(function(p){ all[p.model]=1; }); customs.forEach(function(m){ all[m]=1; }); ovs.forEach(function(m){ all[m]=1; });
   var isHid=function(m2){ var ov2=DB.overrides[m2]; return !!(ov2&&ov2._hidden); };
   var hiddenCnt=Object.keys(all).filter(isHid).length;
-  // 分类下拉：预设分类 + 资料库里已有的分类
+  // 分类下拉：预设分类 + 后台新增分类 + 资料库里已有的分类
   var catSet={}; PROD_CATS.forEach(function(c){ catSet[c]=1; });
+  var _dc=(SYS.settings&&SYS.settings.dbCats)||[]; (Array.isArray(_dc)?_dc:[]).forEach(function(c){ if(c) catSet[c]=1; });
   Object.keys(all).forEach(function(m){ if(isHid(m)) return; var pc=(effProduct(m)||{}).category; if(pc) catSet[pc]=1; });
   var catOpts=Object.keys(catSet).map(function(c){ return '<option value="'+esc(c)+'"'+(_dbCat===c?' selected':'')+'>'+esc(c)+'</option>'; }).join("");
   /* v132b 结构性修复：工具栏（含搜索框）只建一次，输入时只刷新表格区 #dbTblWrap，
@@ -750,6 +847,7 @@ function renderDb(M){
     +'<button class="btn sm ghost" id="dbBatchEdit">批量修改参数</button>'
     +'<button class="btn sm ghost" id="dbBatchSpec">批量设定规格参数</button>'
     +'<button class="btn sm" id="dbTpl">固定参数模板</button>'
+    +'<button class="btn sm ghost" id="dbCatMgr">类别管理</button>'
     +'<span class="hint" id="dbCntHint"></span>'
     +'<span style="flex:1"></span><span class="hint">先勾选产品，再用上面的批量按钮 · 改动保存后员工端打开报价软件即自动同步</span></div>';
   if(hiddenCnt) h+='<div class="hint" style="margin-top:6px">已隐藏 '+hiddenCnt+' 个内置产品（批量删除所致，仍在报价软件历史报价中可用） <button class="btn sm ghost" id="dbUnhide">还原全部隐藏</button></div>';
@@ -762,6 +860,7 @@ function renderDb(M){
   $("dbBatchEdit").onclick=batchEditFields;
   $("dbBatchSpec").onclick=batchSetSpec;
   $("dbTpl").onclick=openTemplate;
+  $("dbCatMgr").onclick=openCatMgr;
   var uh=$("dbUnhide"); if(uh) uh.onclick=async function(){ Object.keys(DB.overrides).forEach(function(m){ if(DB.overrides[m]&&DB.overrides[m]._hidden) delete DB.overrides[m]._hidden; }); try{ await saveDb(); showTab("db"); }catch(e){ alert(e.message||e); } };
   renderDbTable();
 }
@@ -830,7 +929,7 @@ function editProduct(m,isNew){
     else h+='<label>'+esc(f[1])+'<input id="pf_'+k+'" value="'+esc(v)+'"></label>';
   });
   var spLines=parseSpecLines(p.spec_text);
-  h+='</div><datalist id="pfCats">'+PROD_CATS.map(function(c){ return '<option value="'+esc(c)+'">'; }).join("")+'</datalist>'
+  h+='</div><datalist id="pfCats">'+knownCats().map(function(c){ return '<option value="'+esc(c)+'">'; }).join("")+'</datalist>'
    +'<div style="margin:10px 0 4px"><b>规格参数</b> <span class="hint">（每行一条，可添加/删除；参数值输入框可下拉选已有候选值，也可直接输入新值）</span></div>'
    +'<div id="pfSpecRows">'+spLines.map(function(r){ return specRowHtml(r[0],r[1]); }).join("")+'</div>'
    +'<button type="button" class="btn sm ghost" id="pfSpecAdd" style="margin-top:6px">＋ 添加参数</button>'
@@ -853,6 +952,10 @@ function editProduct(m,isNew){
         var c=Object.assign({},DB.custom[mm]||{});
         PF_SAVE.forEach(function(f){ var k=f[0]; if(k==="model") return; if(vals[k]!==""&&vals[k]!=null) c[k]=vals[k]; else delete c[k]; });
         DB.custom[mm]=c;
+        // v147：自定义产品以 custom 为权威——清掉 overrides 里会盖住这些字段的旧键
+        //（此前类别改了「还是显示旧值」的根因之一：overrides 里的旧类别优先级高于 custom）
+        var ov2=DB.overrides[mm];
+        if(ov2){ PF_SAVE.forEach(function(f){ var k=f[0]; if(k!=="model"&&ov2[k]!==undefined) delete ov2[k]; }); }
       } else {
         var ov=Object.assign({},DB.overrides[mm]||{});
         PF_SAVE.forEach(function(f){ var k=f[0]; if(k==="model") return;
@@ -1443,7 +1546,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 146, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 147, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
