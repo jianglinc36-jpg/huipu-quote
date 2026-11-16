@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=147', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=148', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v147</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v148</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -748,8 +748,17 @@ function allDbModels(){
 }
 /* v147：按产品来源把类别写入正确的层（custom 直接改；内置/已改走 overrides，__CLEAR__ 表示清空） */
 function setProductCat(m,newC){
-  if(DB.custom[m]){ if(newC==="") delete DB.custom[m].category; else DB.custom[m].category=newC; }
+  if(DB.custom[m]){
+    if(newC==="") delete DB.custom[m].category; else DB.custom[m].category=newC;
+    var ov2=DB.overrides[m]; if(ov2&&ov2.category!==undefined) delete ov2.category; // v148：custom 为权威，残留旧覆盖一并清掉
+  }
   else { var ov=DB.overrides[m]=DB.overrides[m]||{}; ov.category=(newC==="")?"__CLEAR__":newC; }
+}
+/* v148：列表内直接改类别（下拉只列已知类别，避免手滑打出乱码类别） */
+function catCellHtml(m,curCat){
+  var cur=curCat||"";
+  var opts=knownCats().map(function(c){ return '<option value="'+esc(c)+'"'+(c===cur?' selected':'')+'>'+esc(c)+'</option>'; }).join("");
+  return '<select class="catSel" data-m="'+esc(m)+'" style="max-width:130px"><option value=""'+(!cur?' selected':'')+'>（无）</option>'+opts+'</select>';
 }
 /* ---------- v147 类别管理（重命名 / 删除 / 新增） ---------- */
 function catRename(oldC,newC){
@@ -882,7 +891,7 @@ function renderDbTable(){
     var src=p._src==="custom"?'<span class="badge">自定义</span>':(p._src==="override"?'<span class="badge warn">已改</span>':'<span class="badge gray">内置</span>');
     var img=prodImg(m);
     h+='<tr><td style="text-align:center"><input type="checkbox" class="dbChk" value="'+esc(m)+'"></td><td>'+(img?'<img class="pv-img" src="'+img+'">':"")+'</td>'
-     +'<td class="l"><b>'+esc(m)+'</b></td><td class="l">'+esc(p.category||"")+'</td>'
+     +'<td class="l"><b>'+esc(m)+'</b></td><td class="l">'+catCellHtml(m,p.category)+'</td>'
      +'<td>'+esc((p.power||"")+" "+(p.voltage||""))+'</td><td>'+esc(p.packing||p.moq||"")+'</td>'
      +'<td>'+(p.price_rmb!=null?esc(p.price_rmb):"")+'</td><td>'+(p.price_usd_exw!=null?esc(p.price_usd_exw):"")+'</td>'
      +'<td>'+src+'</td>'
@@ -894,6 +903,18 @@ function renderDbTable(){
   var cnt=document.getElementById("dbCntHint");
   if(cnt) cnt.textContent='内置 '+PRODUCTS.length+' · 自定义 '+customs.length+' · 有覆盖 '+ovs.length+' · 当前显示 '+models.length;
   $("dbSelAll").onchange=function(){ var on=this.checked; document.querySelectorAll(".dbChk").forEach(function(c){ c.checked=on; }); };
+  // v148：列表内直接改类别
+  wrap.querySelectorAll(".catSel").forEach(function(s){
+    s.onchange=async function(){
+      var m=s.dataset.m, v=s.value;
+      try{
+        setProductCat(m,v);
+        await saveDb();
+        badge("「"+m+"」类别已更新 ✓",true);
+        renderDb(document.getElementById("mainBox")); // 整块重绘：顶部类别筛选同步刷新
+      }catch(e){ alert("保存失败："+(e.message||e)); renderDb(document.getElementById("mainBox")); }
+    };
+  });
   wrap.querySelectorAll("[data-e]").forEach(function(b){ b.onclick=function(){ editProduct(b.dataset.e,false); }; });
   wrap.querySelectorAll("[data-img]").forEach(function(b){ b.onclick=function(){ editProductImg(b.dataset.img); }; });
   wrap.querySelectorAll("[data-d]").forEach(function(b){ b.onclick=async function(){
@@ -1546,7 +1567,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 147, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 148, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
