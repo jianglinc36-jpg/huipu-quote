@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=148', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=149', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v148</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v149</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -1423,7 +1423,10 @@ function editProductImg(m){
       var sc=Math.min(1, maxSide/Math.max(img.width,img.height));
       var W=Math.max(1,Math.round(img.width*sc)), H=Math.max(1,Math.round(img.height*sc));
       var c=document.createElement("canvas"); c.width=W; c.height=H;
-      c.getContext("2d").drawImage(img,0,0,W,H);
+      var ctx=c.getContext("2d");
+      // v149：透明 PNG 自动垫白底——不垫的话转 JPEG 后透明区域会变黑
+      ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
+      ctx.drawImage(img,0,0,W,H);
       var q=0.82,url;
       do{ url=c.toDataURL("image/jpeg",q); q-=0.12; }while(url.length>260000&&q>0.3); // 保证云端 payload 可控
       if(!url||url.length<64||url==="data:,") throw new Error("压缩后的图片数据为空（canvas 导出失败）");
@@ -1567,7 +1570,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 148, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 149, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
