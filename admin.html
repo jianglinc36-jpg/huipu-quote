@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=149', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=150', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v149</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v150</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -300,18 +300,35 @@ async function readState(){
   }catch(e){ throw e; }
 }
 async function writeStateKeys(patch){
-  var cur=await readState();
-  var merged=Object.assign({},cur,patch);
-  // v143：候选池（specCands）不再由任何界面改写；后台改动资料库时原样保留云端已有池，
-  // 避免「删掉的值又被并集回来」以及「不同模板的值互相串」。
-  try{
-    if(merged[DB_KEY]&&cur[DB_KEY]&&merged[DB_KEY].specCands===undefined){
-      merged[DB_KEY].specCands=cur[DB_KEY].specCands||[];
-    }
-  }catch(e){}
-  var ex=await cloud.database.from("quotation_state").select("workspace_id").eq("workspace_id",WS_ID).maybeSingle();
-  if(ex.data){ var r=await cloud.database.from("quotation_state").update({data:merged,updated_at:new Date().toISOString()}).eq("workspace_id",WS_ID); if(r.error) throw r.error; }
-  else { var r2=await cloud.database.from("quotation_state").insert({workspace_id:WS_ID,owner_id:ME.uid,data:merged,updated_at:new Date().toISOString()}); if(r2.error) throw r2.error; }
+  // v150：以前是「读整行 + 查行存在 + 写整行」×2 遍 = 6 次请求（整行 2MB，跨境一慢就 statement timeout）。
+  // 现在合并为 1 读 + 1 写，写失败自动重试 2 次（间隔 1.5s/3s）。
+  var lastErr=null;
+  for(var att=0;att<3;att++){
+    if(att){ await new Promise(function(rs){ setTimeout(rs,1500*att); }); }
+    try{
+      var cur=await readState();
+      var merged=Object.assign({},cur,patch);
+      // v143：候选池（specCands）不再由任何界面改写；后台改动资料库时原样保留云端已有池，
+      // 避免「删掉的值又被并集回来」以及「不同模板的值互相串」。
+      try{
+        if(merged[DB_KEY]&&cur[DB_KEY]&&merged[DB_KEY].specCands===undefined){
+          merged[DB_KEY].specCands=cur[DB_KEY].specCands||[];
+        }
+      }catch(e){}
+      // update 带 returning：命中行说明行存在；未命中（空数组）自动转 insert
+      var r=await cloud.database.from("quotation_state").update({data:merged,updated_at:new Date().toISOString()}).eq("workspace_id",WS_ID).select("workspace_id");
+      if(r.error) throw r.error;
+      if(r.data&&r.data.length){ lastErr=null; break; }
+      var r2=await cloud.database.from("quotation_state").insert({workspace_id:WS_ID,owner_id:ME.uid,data:merged,updated_at:new Date().toISOString()});
+      if(r2.error) throw r2.error;
+      lastErr=null; break;
+    }catch(e){ lastErr=e; }
+  }
+  if(lastErr){
+    var msg=String((lastErr&&lastErr.message)||lastErr||"");
+    if(/statement timeout|canceling statement/i.test(msg)) throw new Error("云端正忙（保存超时），已自动重试 2 次仍失败。请等几秒再点一次保存即可。");
+    throw lastErr;
+  }
 }
 async function loadSysAndDb(){
   try{
@@ -332,8 +349,9 @@ function splitDbImages(){
 }
 async function saveDb(){
   var s=splitDbImages();
-  await writeStateKeys({}); // 先确保行存在
-  var patch={}; 
+  // v150：不再先 writeStateKeys({}) 确保行存在（update 带 returning 自动兜底 insert），
+  // 一次读 + 一次写完成，速度比原来快 3 倍
+  var patch={};
   var dbOut=Object.assign({},s.db||{}); delete dbOut.specCands; // v143：候选池不随资料库保存改写
   patch[DB_KEY]=dbOut; patch[DBIMG_KEY]=s.imgs;
   await writeStateKeys(patch);
@@ -1427,8 +1445,8 @@ function editProductImg(m){
       // v149：透明 PNG 自动垫白底——不垫的话转 JPEG 后透明区域会变黑
       ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
       ctx.drawImage(img,0,0,W,H);
-      var q=0.82,url;
-      do{ url=c.toDataURL("image/jpeg",q); q-=0.12; }while(url.length>260000&&q>0.3); // 保证云端 payload 可控
+      var q=0.8,url;
+      do{ url=c.toDataURL("image/jpeg",q); q-=0.12; }while(url.length>160000&&q>0.3); // v150：上限 260KB→160KB，整行更小保存更快
       if(!url||url.length<64||url==="data:,") throw new Error("压缩后的图片数据为空（canvas 导出失败）");
       return url;
     }catch(e){ throw new Error("图片压缩失败："+(e.message||e)); }
@@ -1570,7 +1588,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 149, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 150, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
