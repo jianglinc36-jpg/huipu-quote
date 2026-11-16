@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=144', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=145', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v144</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v145</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -623,9 +623,31 @@ async function addMemberInvite(){
       var s0=null; try{ var _g=await cloud._sb.auth.getSession(); s0=_g&&_g.data&&_g.data.session; }catch(e){}
       var su=await cloud._sb.auth.signUp({ email: email, password: pwd });
       if(su.error){
-        _addMemBusy=false;
         var msg=su.error.message||String(su.error);
-        alert("创建账号失败："+msg+(msg.indexOf("already registered")>=0?"\n该邮箱已注册过，如需直接加入，请让员工用「邮箱验证码」登录后凭手机号加入，或换一个邮箱。":""));
+        if(msg.indexOf("already registered")>=0 || msg.indexOf("already been registered")>=0){
+          /* v145：邮箱已注册（多半是之前移除过成员、账号还在）——用填的密码直接登录该账号，把他加回工作区 */
+          var si=await cloud._sb.auth.signInWithPassword({ email: email, password: pwd });
+          if(si.error || !si.data || !si.data.user){
+            _addMemBusy=false;
+            alert("该邮箱已注册过（可能是之前移除的成员，账号仍保留）。\n把该账号「当前正确的密码」填进来再点一次，系统会自动把他加回工作区；\n如果不确定密码，可让员工用「邮箱验证码」登录后凭手机号加入。");
+            return;
+          }
+          var uid=si.data.user.id;
+          // 登录切到了员工会话 —— 立即恢复管理员会话
+          if(s0 && si.data.session){ try{ await cloud._sb.auth.setSession({ access_token:s0.access_token, refresh_token:s0.refresh_token }); }catch(e){} }
+          // 已在工作区则不重复插入
+          var ex=null; try{ var exr=await cloud.database.from("quotation_members").select("id,status").eq("workspace_id",WS_ID).eq("user_id",uid).maybeSingle(); ex=exr&&exr.data; }catch(e){}
+          if(ex){ _addMemBusy=false; alert("该账号已是工作区成员"+(ex.status&&ex.status!=="active"?("（状态 "+ex.status+"）"):"")+"，无需重复添加。"); return; }
+          var mr2=await cloud.database.from("quotation_members").insert({ workspace_id:WS_ID, user_id:uid, role:role, perms:perms, status:"active", invited_by:(ME&&ME.uid)||"" });
+          if(mr2.error){ _addMemBusy=false; alert("加入工作区失败："+(mr2.error.message||mr2.error)); return; }
+          $("mName").value=""; $("mPhone").value=""; $("mEmail").value=""; $("mPwd").value="";
+          box.style.display="";
+          box.innerHTML='✅ 该邮箱已注册过（之前移除的成员账号仍保留），已用你填的密码验证并<b>直接加入工作区</b>：<b>'+esc(email)+'</b>。员工用<b>邮箱 + 该密码登录</b>即可。';
+          badge("成员已加回工作区 ✓",true);
+          _addMemBusy=false; showTab("members"); return;
+        }
+        _addMemBusy=false;
+        alert("创建账号失败："+msg);
         return;
       }
       var uid=(su.data&&su.data.user)?su.data.user.id:null;
@@ -1421,7 +1443,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 144, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 145, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
