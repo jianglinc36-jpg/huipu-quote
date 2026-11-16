@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v146</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v147</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -1465,6 +1465,7 @@ function applyState(state, withDb){
       DB = loadJSON(DB_KEY, DB) || DB;
       mergeDbImages();
       saveDB_noPush();
+      try{ hpDbSnapTake(); }catch(e){} // v147：云端拉回后重置差分基线
     }catch(e){}
   }
   // 源头防御：云端快照里的清单可能含空条目（null），会导致预览渲染整链报错
@@ -1520,6 +1521,7 @@ async function mergeCloudDb(){
       Object.keys(cimg).forEach(m=>{ const t=merged.overrides[m]=merged.overrides[m]||{}; t.img=cimg[m]; });
       if(JSON.stringify(merged)!==JSON.stringify(DB)){
         DB=merged; saveDB_noPush();
+        try{ hpDbSnapTake(); }catch(e){} // v147：云端拉回后重置差分基线
         syncBadge("资料库已自动同步云端最新（含图片）");
         try{ autoSyncItemsFromDb(); }catch(e){} // v134：资料库更新后未手动改过的条目立即跟上
         renderItems(); renderPreview(); refreshDbInfo();
@@ -1531,6 +1533,58 @@ async function mergeCloudDb(){
 }
 // 员工端每 30 秒自动同步一次资料库/常用参数，管理员新增即时可见
 setInterval(()=>{ try{ if(!WS.isOwner && cloudReady() && WS.loaded && !WS.locked) mergeCloudDb(); }catch(e){} }, 30000);
+/* v147：DB 云端保护——推送时只上传「本机自上次与云端对齐后真正改过的型号」，
+   其余型号一律以云端为准。后台刚改的类别/参数/价格不再被本机旧页面推回旧值。
+   快照在三个时机刷新：页面载入后、每次从云端拉回资料库后、每次推送成功后。 */
+window.__hpDbSnap=null;
+function hpDbSnapTake(){
+  try{
+    window.__hpDbSnap={
+      custom:JSON.parse(JSON.stringify(DB.custom||{})),
+      overrides:JSON.parse(JSON.stringify(DB.overrides||{})),
+      specLib:JSON.parse(JSON.stringify(DB.specLib||[]))
+    };
+  }catch(e){ window.__hpDbSnap=null; }
+}
+/* 返回本机相对快照真正改动过的部分：{custom:{m:v},overrides:{m:v},specLib:arr|null}；无快照返回 null */
+function hpDbSnapDiff(){
+  const snap=window.__hpDbSnap;
+  if(!snap) return null;
+  const out={custom:{},overrides:{},specLib:null};
+  const lc=DB.custom||{}, lo=DB.overrides||{};
+  Object.keys(lc).forEach(m=>{ if(JSON.stringify(lc[m])!==JSON.stringify(snap.custom&&snap.custom[m])) out.custom[m]=lc[m]; });
+  Object.keys(lo).forEach(m=>{ if(JSON.stringify(lo[m])!==JSON.stringify(snap.overrides&&snap.overrides[m])) out.overrides[m]=lo[m]; });
+  if(JSON.stringify(DB.specLib||[])!==JSON.stringify(snap.specLib||[])) out.specLib=DB.specLib||[];
+  return out;
+}
+/* 推送成功后刷新快照：本机改过的型号记为推送值；没改过的保持旧快照（本机值依旧等于旧快照） */
+function hpDbSnapAfterPush(diff){
+  const snap=window.__hpDbSnap;
+  if(!snap||!diff){ hpDbSnapTake(); return; }
+  const ns={custom:Object.assign({},snap.custom),overrides:Object.assign({},snap.overrides),specLib:snap.specLib};
+  Object.keys(diff.custom).forEach(m=>{ ns.custom[m]=JSON.parse(JSON.stringify(diff.custom[m])); });
+  Object.keys(diff.overrides).forEach(m=>{ ns.overrides[m]=JSON.parse(JSON.stringify(diff.overrides[m])); });
+  if(diff.specLib) ns.specLib=JSON.parse(JSON.stringify(diff.specLib));
+  window.__hpDbSnap=ns;
+}
+/* v147：按差分合并出要上传的 DB（云端为底、只叠本机改动），供两处推送实现共用 */
+function hpMergeDbForPush(cdb,ldb){
+  const base=cdb||{};
+  let mCustom=Object.assign({},base.custom||{});
+  let mOver=Object.assign({},base.overrides||{});
+  let mSpecLib=base.specLib||[];
+  const diff=hpDbSnapDiff();
+  if(diff){
+    Object.keys(diff.custom).forEach(m=>{ mCustom[m]=diff.custom[m]; });
+    Object.keys(diff.overrides).forEach(m=>{ mOver[m]=diff.overrides[m]; });
+    if(diff.specLib) mSpecLib=diff.specLib;
+  } else {
+    Object.assign(mCustom,(ldb&&ldb.custom)||{});
+    Object.assign(mOver,(ldb&&ldb.overrides)||{});
+    if(ldb&&ldb.specLib&&ldb.specLib.length) mSpecLib=ldb.specLib;
+  }
+  return { custom:mCustom, overrides:mOver, specLib:mSpecLib, specCands:(cdb&&cdb.specCands)||[] };
+}
 function debouncedPush(){ if(_pushTimer) clearTimeout(_pushTimer); _pushTimer=setTimeout(doPushCloud, 800); }
 /* v138：doPushCloud 由 setTimeout 调用，内部 await 都在 try 之外（getSession / gatherState），
    一旦登录会话过期或网络抖动就会变成「未处理错误」弹窗。这里统一兜住。 */
@@ -1578,11 +1632,13 @@ async function _doPushCloudCore(){
     const { data: rows } = await cloud.database.from("quotation_state").select("workspace_id,data").eq("workspace_id", WS_ID).maybeSingle();
     // v143：前端永不改写候选池。候选值现在只来自「各模板自己填的值」（模板彼此独立），
     // 本机残留的旧池若再回传，会把后台删掉的/别的模板的值重新写回云端 → 一律以云端池为准，原样保留。
+    // v147：custom/overrides 改为「差分上传」——只上传本机真正改过的型号，
+    // 其余型号以云端为准，后台刚保存的类别/参数不再被本机旧数据推回旧值。
     try{
       const cdb=rows&&rows.data&&rows.data[DB_KEY];
       const ldb=payload.data&&payload.data[DB_KEY];
       if(cdb||ldb){
-        payload.data[DB_KEY]=Object.assign({}, cdb||{}, ldb||{}, { specCands: (cdb&&cdb.specCands)||[] });
+        payload.data[DB_KEY]=hpMergeDbForPush(cdb,ldb);
       }
       // v146：图片字典逐型号合并——后台刚上传的图不再被本机旧字典整体抹掉
       //（并集：本机新增的图照常上传；云端有而本机暂缺的图原样保留）
@@ -1597,6 +1653,7 @@ async function _doPushCloudCore(){
       if(error) throw error;
     }
     window.__lastPushAt=new Date();
+    try{ hpDbSnapAfterPush(hpDbSnapDiff()); }catch(e){}
     syncBadge("已同步云端 ✓ · "+new Date().toLocaleTimeString()+"（员工端打开即更新）");
     return true;
   }catch(e){
@@ -5613,9 +5670,10 @@ doPushCloud = async function(){
     const merged=Object.assign({},ex,_gs); // 保留后台键（huipu_sys_v1 等），本机键覆盖
     // v143：候选池以云端为准——前端永不改写 specCands（模板候选值只由后台模板管理，
     // 本地旧池若随 payload 上传，会把云端池整体抹掉/串回旧值）
+    // v147：custom/overrides 差分上传（云端为底 + 本机真正改过的型号），防止本机旧数据推回后台改动
     try{
       if(merged[DB_KEY]){
-        merged[DB_KEY]=Object.assign({}, merged[DB_KEY], { specCands: (ex[DB_KEY]&&ex[DB_KEY].specCands)||[] });
+        merged[DB_KEY]=hpMergeDbForPush(ex[DB_KEY], _gs[DB_KEY]);
       }
       // v146：图片字典逐型号并集——后台刚上传的图不再被本机旧字典整体抹掉
       merged[DBIMG_KEY]=Object.assign({}, ex[DBIMG_KEY]||{}, _gs[DBIMG_KEY]||{});
@@ -5624,6 +5682,7 @@ doPushCloud = async function(){
     if(st&&st.data){ const { error }=await cloud.database.from("quotation_state").update(payload).eq("workspace_id",WS_ID); if(error) throw error; }
     else { const { error }=await cloud.database.from("quotation_state").insert(payload); if(error) throw error; }
     window.__lastPushAt=new Date();
+    try{ hpDbSnapAfterPush(hpDbSnapDiff()); }catch(e){}
     syncBadge("已同步云端 ✓ · "+new Date().toLocaleTimeString()+"（员工端打开即更新）");
     return true;
   }catch(e){
@@ -5635,6 +5694,7 @@ doPushCloud = async function(){
 const _pv90Pull=pullCloud;
 pullCloud=async function(){ const r=await _pv90Pull.apply(this,arguments); try{ pv90TagCards(); pv90SyncSys(); }catch(e){} return r; };
 setTimeout(function(){ try{ pv90TagCards(); pv90SyncSys(); }catch(e){} },1500);
+setTimeout(function(){ try{ hpDbSnapTake(); }catch(e){} },1800); // v147：启动基线（拉取晚于此时会再刷新）
 setInterval(function(){ try{ pv90SyncSys(); }catch(e){} },60000);
 window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
 /* ===== v90 系统联动注入结束 ===== */
@@ -5646,7 +5706,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=146', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=147', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5844,7 +5904,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 146;
+  var APP_VER = 147;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
