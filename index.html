@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v151</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v152</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -890,6 +890,7 @@ function effProduct(model){
   else base=cus||builtin;
   if(!base) return null;
   const m=Object.assign({},base);
+  if(m.model==null||m.model==="") m.model=model; // v152：后台新增的自定义产品历史数据缺 model 字段，用键名补上（修复搜索 toLowerCase 报错）
   const OVK=["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","prod_size","power","voltage","windspeed","gears","material","category","brand","spec_text"];
   // 后台资料库改动叠加在最上层（__CLEAR__=后台批量清空该字段，阻止内置库回填）
   const ov=DB.overrides[model]||{};
@@ -2349,8 +2350,8 @@ async function renderDb(){
   // 合并：内置 PRODUCTS + 自定义 custom + 覆盖 overrides
   const map={};
   PRODUCTS.forEach(function(p){ map[p.model]={model:p.model, src:"内置", spec:p.specRows||[], pack:p.pack||"", price:(p.price_rmb||p.price_usd_exw||""), img:(IMAGES[p.model]&&IMAGES[p.model][0])||""}; });
-  Object.keys(DB.custom||{}).forEach(function(m){ const c=DB.custom[m]||{}; map[m]=Object.assign(map[m]||{model:m,src:"自定义"}, {spec:c.specRows||[], pack:c.pack||"", price:(c.price_usd_exw||c.price_rmb||"")}); });
-  Object.keys(DB.overrides||{}).forEach(function(m){ const o=DB.overrides[m]||{}; map[m]=Object.assign(map[m]||{model:m,src:"覆盖"}, {spec:o.specRows||[], pack:o.pack||"", price:(o.price_usd_exw||o.price_rmb||""), img:o.img||(map[m]&&map[m].img)}); });
+  Object.keys(DB.custom||{}).forEach(function(m){ const c=DB.custom[m]||{}; map[m]=Object.assign(map[m]||{model:m,src:"自定义"}, {spec:c.specRows||[], pack:c.pack||"", price:(c.price_rmb||c.price_usd_exw||"")}); });
+  Object.keys(DB.overrides||{}).forEach(function(m){ const o=DB.overrides[m]||{}; map[m]=Object.assign(map[m]||{model:m,src:"覆盖"}, {spec:o.specRows||[], pack:o.pack||"", price:(o.price_rmb||o.price_usd_exw||""), img:o.img||(map[m]&&map[m].img)}); });
   const all=Object.keys(map).map(k=>map[k]);
   const cnt=document.getElementById("dbCount"); if(cnt) cnt.textContent=("共 "+all.length+" 个型号（内置 "+Object.keys(PROD_MAP).length+" · 自定义 "+Object.keys(DB.custom||{}).length+" · 覆盖 "+Object.keys(DB.overrides||{}).length+"）");
   const q=(document.getElementById("dbSearch")?document.getElementById("dbSearch").value:""||"").trim().toLowerCase();
@@ -2733,7 +2734,7 @@ function renderSuggest(q){
   const box=$("suggest"); if(!q){ box.style.display="none"; return; }
   const ql=q.toLowerCase();
   const pool=allProds();
-  const hits=pool.filter(p=>p.model.toLowerCase().includes(ql)||(p.category&&p.category.toLowerCase().includes(ql))).slice(0,40);
+  const hits=pool.filter(p=>(p.model||"").toLowerCase().includes(ql)||(p.category&&p.category.toLowerCase().includes(ql))).slice(0,40);
   if(!hits.length){ box.style.display="none"; return; }
   box.innerHTML = hits.map(p=>{
     let pr = p.ref_prices&&p.ref_prices.length ? ("成交 $"+p.ref_prices[0].price) :
@@ -5272,8 +5273,8 @@ async function renderDb(){
   box.innerHTML="加载中…";
   var map={};
   PRODUCTS.forEach(function(p){ map[p.model]={model:p.model, src:"内置", spec:p.specRows||[], pack:p.pack||"", price:(p.price_rmb||p.price_usd_exw||""), img:(IMAGES[p.model]&&IMAGES[p.model][0])||""}; });
-  Object.keys(DB.custom||{}).forEach(function(m){ var c=DB.custom[m]||{}; map[m]=Object.assign(map[m]||{model:m,src:"自定义"}, {spec:c.specRows||[], pack:c.pack||"", price:(c.price_usd_exw||c.price_rmb||""), img:c.img||(map[m]&&map[m].img)}); });
-  Object.keys(DB.overrides||{}).forEach(function(m){ var o=DB.overrides[m]||{}; map[m]=Object.assign(map[m]||{model:m,src:"覆盖"}, {spec:o.specRows||[], pack:o.pack||"", price:(o.price_usd_exw||o.price_rmb||""), img:o.img||(map[m]&&map[m].img)}); });
+  Object.keys(DB.custom||{}).forEach(function(m){ var c=DB.custom[m]||{}; map[m]=Object.assign(map[m]||{model:m,src:"自定义"}, {spec:c.specRows||[], pack:c.pack||"", price:(c.price_rmb||c.price_usd_exw||""), img:c.img||(map[m]&&map[m].img)}); });
+  Object.keys(DB.overrides||{}).forEach(function(m){ var o=DB.overrides[m]||{}; map[m]=Object.assign(map[m]||{model:m,src:"覆盖"}, {spec:o.specRows||[], pack:o.pack||"", price:(o.price_rmb||o.price_usd_exw||""), img:o.img||(map[m]&&map[m].img)}); });
   var all=Object.keys(map).map(function(k){return map[k];});
   var cnt=document.getElementById("dbCount"); if(cnt) cnt.textContent=("共 "+all.length+" 个型号（内置 "+Object.keys(PROD_MAP).length+" · 自定义 "+Object.keys(DB.custom||{}).length+" · 覆盖 "+Object.keys(DB.overrides||{}).length+"）");
   var q=(document.getElementById("dbSearch")?document.getElementById("dbSearch").value:"")||""; q=q.trim().toLowerCase();
@@ -5706,7 +5707,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=151', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=152', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5904,7 +5905,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 151;
+  var APP_VER = 152;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
