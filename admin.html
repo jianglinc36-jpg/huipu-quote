@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=154', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=155', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v154</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v155</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -337,6 +337,7 @@ async function loadSysAndDb(){
     var imgs=st[DBIMG_KEY]||{};
     Object.keys(imgs).forEach(function(m){ if(!DB.overrides[m]) DB.overrides[m]={}; if(!DB.overrides[m].img) DB.overrides[m].img=imgs[m]; });
     SYS=st[SYS_KEY]||{features:{},settings:{}};
+    await tplEnsureCats(); // v155：按分类补齐独立模板（只补一次，绝不覆盖用户已建模板）
     tplBackupOnce(); // v154：每天首次打开后台自动备份模板快照（当天已有则跳过）
   }catch(e){ badge("云端数据加载失败："+(e.message||e)); }
 }
@@ -360,6 +361,69 @@ async function saveDb(){
 }
 async function saveSys(){
   await writeStateKeys((function(){ var p={}; p[SYS_KEY]=SYS; return p; })());
+}
+/* v155：按分类自动补齐独立参数模板。
+   用户点名的类别（干手器 / 折叠吹风机 / 干肤器）以及资料库中存在但没有同名模板的
+   吹风机类类别，各新建一套独立模板；内容取自该类别产品在资料库里的现有参数作为候选值。
+   只执行一次（标记写入 SYS.settings），绝不改动/覆盖已有的 3 套模板，用户之后删除或
+   改名的模板也不会被复活。装箱量/内盒/外箱/净毛重/产品尺寸一律不进模板。 */
+var CAT_TPL_SEED="huipu_cat_tpl_seeded_v155";
+async function tplEnsureCats(){
+  try{
+    var S=SYS.settings=SYS.settings||{};
+    if(S[CAT_TPL_SEED]) return;
+    S[CAT_TPL_SEED]=true;
+    var list=tplList();
+    var norm=function(s){ return String(s||"").replace(/[\s　]/g,"").replace(/式|型/g,"").toLowerCase(); };
+    var has=function(cat){
+      var c=norm(cat); if(!c) return true;
+      return list.some(function(t){
+        var n=norm(t&&t.name); if(!n) return false;
+        return n===c||(c.length>1&&c.indexOf(n)>=0)||(n.length>1&&n.indexOf(c)>=0);
+      });
+    };
+    var wanted=["干手器","折叠吹风机","干肤器"];
+    var prodCats={}, all=[];
+    (typeof PRODUCTS!=="undefined"&&PRODUCTS||[]).forEach(function(p){
+      all.push(p);
+      var c=String(p.category||"").trim();
+      if(c&&/吹风机|干手器|干肤器/.test(c)) prodCats[c]=1;
+    });
+    Object.keys(DB.custom||{}).forEach(function(m){
+      var q=Object.assign({model:m},DB.custom[m]||{}); all.push(q);
+      var c=String(q.category||"").trim();
+      if(c&&/吹风机|干手器|干肤器/.test(c)) prodCats[c]=1;
+    });
+    Object.keys(prodCats).forEach(function(c){ if(wanted.indexOf(c)<0) wanted.push(c); });
+    var FIELDS=["power","voltage","frequency","windspeed","gears","material"];
+    var SKIP=/装箱|内盒|外箱|净重|毛重|箱规|尺寸/;
+    var added=[];
+    wanted.forEach(function(cat){
+      if(has(cat)) return;
+      var cn=norm(cat);
+      var rows=all.filter(function(p){ return norm(p.category)===cn; });
+      var fields={}, spec=[], sm={};
+      FIELDS.forEach(function(f){
+        var vals=[];
+        rows.forEach(function(p){ var v=String(p[f]||"").trim(); if(v&&vals.indexOf(v)<0) vals.push(v); });
+        if(vals.length) fields[f]=vals.join("、");
+      });
+      rows.forEach(function(p){
+        String(p.spec_text||"").split(/\n/).forEach(function(line){
+          var mm=line.match(/^\s*([^：:]{1,14})[：:]\s*(.+)$/);
+          if(!mm) return;
+          var k=mm[1].trim(), v=mm[2].trim();
+          if(!k||!v||SKIP.test(k)) return;
+          if(!sm[k]) sm[k]=[]; if(sm[k].indexOf(v)<0) sm[k].push(v);
+        });
+      });
+      Object.keys(sm).forEach(function(k){ spec.push([k,sm[k].join("、")]); });
+      list.push({name:cat,fields:fields,customFields:[],spec:spec});
+      added.push(cat);
+    });
+    await saveSys();
+    if(added.length) badge("已按分类补齐 "+added.length+" 套独立模板："+added.join("、"),true);
+  }catch(e){ try{ (SYS.settings=SYS.settings||{})[CAT_TPL_SEED]=true; }catch(e2){} }
 }
 /* v154：模板每日自动备份 + 一键恢复（独立键 huipu_tpl_bak_v1，前端永不触碰，防止模板再被误覆盖） */
 var TPL_BAK_KEY="huipu_tpl_bak_v1", _tplBaking=false;
@@ -1625,7 +1689,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 154, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 155, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
