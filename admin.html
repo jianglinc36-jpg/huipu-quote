@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=153', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=154', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v153</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v154</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -337,6 +337,7 @@ async function loadSysAndDb(){
     var imgs=st[DBIMG_KEY]||{};
     Object.keys(imgs).forEach(function(m){ if(!DB.overrides[m]) DB.overrides[m]={}; if(!DB.overrides[m].img) DB.overrides[m].img=imgs[m]; });
     SYS=st[SYS_KEY]||{features:{},settings:{}};
+    tplBackupOnce(); // v154：每天首次打开后台自动备份模板快照（当天已有则跳过）
   }catch(e){ badge("云端数据加载失败："+(e.message||e)); }
 }
 function splitDbImages(){
@@ -359,6 +360,23 @@ async function saveDb(){
 }
 async function saveSys(){
   await writeStateKeys((function(){ var p={}; p[SYS_KEY]=SYS; return p; })());
+}
+/* v154：模板每日自动备份 + 一键恢复（独立键 huipu_tpl_bak_v1，前端永不触碰，防止模板再被误覆盖） */
+var TPL_BAK_KEY="huipu_tpl_bak_v1", _tplBaking=false;
+async function tplBackupOnce(){
+  if(_tplBaking) return; _tplBaking=true;
+  try{
+    var tpls=(SYS.settings&&SYS.settings.dbTemplates)||[];
+    if(!Array.isArray(tpls)||!tpls.length) return;
+    var today=new Date().toISOString().slice(0,10);
+    var cur=(await readState())[TPL_BAK_KEY]||{};
+    if(cur[today]) return;
+    cur[today]={savedAt:new Date().toISOString(),dbTemplates:tpls,dbTemplateDefault:(SYS.settings&&SYS.settings.dbTemplateDefault)||"",dbCats:(SYS.settings&&SYS.settings.dbCats)||[]};
+    var ks=Object.keys(cur).sort(); while(ks.length>14){ delete cur[ks.shift()]; }
+    var p={}; p[TPL_BAK_KEY]=cur;
+    await writeStateKeys(p);
+    badge("模板已自动备份（"+today+"）✓",true);
+  }catch(e){}finally{ _tplBaking=false; }
 }
 function effProduct(m){
   var cus=DB.custom[m],b=PROD_MAP[m],base;
@@ -1237,6 +1255,7 @@ function openTemplate(){
    +'<select id="tplSel" style="max-width:220px">'+list.map(function(x,i){ return '<option value="'+i+'"'+(i===_tplIdx?' selected':'')+'>'+esc(x.name)+(x.name===defName?' ★默认':'')+'</option>'; }).join("")+'</select>'
    +'<button class="btn sm ghost" id="tplSaveAs">存为新模板</button>'
    +'<button class="btn sm ghost" id="tplDefault">设为默认</button>'
+   +'<button class="btn sm ghost" id="tplRestore">恢复备份</button>'
    +'<button class="btn sm danger" id="tplDel">删除模板</button>'
    +'</div>'
    +'<datalist id="tplFieldNames">'+BATCH_FIELDS.map(function(f){ return '<option value="'+esc(f[1])+'">'; }).join("")+TPL_EXTRA_FIELDS.map(function(n){ return '<option value="'+esc(n)+'">'; }).join("")+'</datalist>'
@@ -1261,6 +1280,23 @@ function openTemplate(){
     list.push({name:nm.trim(),fields:t2.fields,customFields:t2.customFields,spec:t2.spec});
     _tplIdx=list.length-1;
     try{ await saveSys(); badge("已保存新模板「"+nm.trim()+"」 ✓（候选值仅属于本模板）",true); openTemplate(); }catch(e){ alert("保存失败："+(e.message||e)); }
+  };
+  $("tplRestore").onclick=async function(){
+    try{
+      var cur=(await readState())[TPL_BAK_KEY]||{};
+      var days=Object.keys(cur).sort().reverse();
+      if(!days.length){ alert("还没有模板备份。以后每天首次打开后台会自动备份当天模板。"); return; }
+      var pick=prompt("输入要恢复的日期（可选：\n"+days.join("\n")+"）：",days[0]);
+      if(!pick) return;
+      var bak=cur[pick.trim()];
+      if(!bak||!bak.dbTemplates||!bak.dbTemplates.length){ alert(pick+" 没有可用的模板备份"); return; }
+      if(!confirm("用 "+pick+" 的备份覆盖当前所有模板？\n当前 "+(SYS.settings.dbTemplates||[]).length+" 套 → 恢复 "+bak.dbTemplates.length+" 套")) return;
+      SYS.settings.dbTemplates=bak.dbTemplates;
+      if(bak.dbTemplateDefault) SYS.settings.dbTemplateDefault=bak.dbTemplateDefault;
+      if(bak.dbCats) SYS.settings.dbCats=bak.dbCats;
+      await saveSys();
+      badge("已恢复 "+pick+" 的模板备份 ✓",true); openTemplate();
+    }catch(e){ alert("恢复失败："+(e.message||e)); }
   };
   $("tplDefault").onclick=async function(){
     SYS.settings.dbTemplateDefault=list[_tplIdx].name;
@@ -1589,7 +1625,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 153, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 154, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
