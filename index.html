@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v152</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v153</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -1645,6 +1645,9 @@ async function _doPushCloudCore(){
       //（并集：本机新增的图照常上传；云端有而本机暂缺的图原样保留）
       const limg=payload.data[DBIMG_KEY]||{}, cimg=(rows&&rows.data&&rows.data[DBIMG_KEY])||{};
       payload.data[DBIMG_KEY]=Object.assign({}, cimg, limg);
+      // v153：huipu_sys_v1（固定参数模板/功能开关/系统设置）只由后台管理，前端只读。
+      // 本机 sys 一旦是旧版（缺 dbTemplates），推送会把云端模板整体抹掉 → 一律以云端为准。
+      if(rows&&rows.data&&rows.data["huipu_sys_v1"]) payload.data["huipu_sys_v1"]=rows.data["huipu_sys_v1"];
     }catch(e){ console.warn("specCands/imgs preserve failed", e); }
     if(rows){
       const { error } = await cloud.database.from("quotation_state").update(payload).eq("workspace_id", WS_ID);
@@ -5678,6 +5681,9 @@ doPushCloud = async function(){
       }
       // v146：图片字典逐型号并集——后台刚上传的图不再被本机旧字典整体抹掉
       merged[DBIMG_KEY]=Object.assign({}, ex[DBIMG_KEY]||{}, _gs[DBIMG_KEY]||{});
+      // v153：huipu_sys_v1（模板/功能开关/系统设置）只由后台管理，前端只读——一律以云端为准，
+      // 防止本机旧 sys（缺 dbTemplates）把后台模板整体抹掉
+      if(ex["huipu_sys_v1"]) merged["huipu_sys_v1"]=ex["huipu_sys_v1"];
     }catch(e){}
     const payload={ workspace_id:WS_ID, owner_id:WS.uid, data:merged, updated_at:new Date().toISOString() };
     if(st&&st.data){ const { error }=await cloud.database.from("quotation_state").update(payload).eq("workspace_id",WS_ID); if(error) throw error; }
@@ -5707,7 +5713,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=152', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=153', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5905,7 +5911,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 152;
+  var APP_VER = 153;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
