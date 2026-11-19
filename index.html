@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v159</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v160</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -1461,10 +1461,19 @@ function applyState(state, withDb){
   // 但 pullCloud（云端实时状态拉取）传 withDb=true：此时资料库以云端为准（后台改动必须同步到软件端）
   CLOUD_KEYS.forEach(k=>{ if(k===SELLER_KEY) return; if(!withDb&&(k===DB_KEY||k===DBIMG_KEY)) return; if(k in state) saveJSON(k, state[k]); });
   // withDb：把云端资料库刷新进内存（DB 变量 + 图片通道），并落盘
-  if(withDb && (state[DB_KEY]||state[DBIMG_KEY])){
+  if(withDb && (state[DB_KEY]||state[DBIMG_KEY]||Object.keys(state).some(k=>k.indexOf("huipu_dbimg_m_")===0))){
     try{
+      // v160：聚合 per-model 图片键（huipu_dbimg_m_*）——applyState 此前只搬 CLOUD_KEYS，
+      // 管理员端启动拉云后图片通道被云端空旧键覆盖，导致前端图片全部消失。
+      const cimg={};
+      Object.keys(state).forEach(k=>{ if(k.indexOf("huipu_dbimg_m_")===0 && state[k]) cimg[k.slice(14)]=state[k]; });
+      Object.keys(state[DBIMG_KEY]||{}).forEach(m=>{ if(cimg[m]===undefined) cimg[m]=state[DBIMG_KEY][m]; });
       DB = loadJSON(DB_KEY, DB) || DB;
       mergeDbImages();
+      // 云端图片权威：覆盖写入 overrides（同时清掉云端已不存在的本机残图，防复活）
+      const cloudM={}; Object.keys(cimg).forEach(m=>cloudM[m]=1);
+      Object.keys(DB.overrides||{}).forEach(m=>{ const t=DB.overrides[m]; if(t&&t.img&&!cloudM[m]){ delete t.img; } });
+      Object.keys(cimg).forEach(m=>{ const t=DB.overrides[m]=DB.overrides[m]||{}; t.img=cimg[m]; });
       saveDB_noPush();
       try{ hpDbSnapTake(); }catch(e){} // v147：云端拉回后重置差分基线
     }catch(e){}
@@ -5726,7 +5735,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=159', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=160', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5924,7 +5933,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 159;
+  var APP_VER = 160;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
