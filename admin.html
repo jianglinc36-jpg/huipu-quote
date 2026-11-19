@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=156', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=157', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v156</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v157</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -450,6 +450,7 @@ function effProduct(m){
   if(cus&&b) base=Object.assign({},b,cus); else base=cus||b;
   if(!base) return null;
   var x=Object.assign({},base);
+  if(cus&&(x.model==null||x.model==="")) x.model=m; /* v157：老自定义记录缺 model 时用键名补上——编辑弹窗/表格/搜索不再出现空型号 */
   var OVK=["price_rmb","price_usd_exw","moq","packing","net_weight","gross_weight","inner_box","outer_box","prod_size","power","voltage","windspeed","gears","material","category","brand","spec_text"];
   var ov=DB.overrides[m]||{};
   if(b){ ["ref_prices"].concat(OVK).forEach(function(k){ if(ov[k]!==undefined) return; if((x[k]===undefined||x[k]===null||x[k]==="")&&b[k]!==undefined&&b[k]!=="") x[k]=b[k]; }); }
@@ -1031,7 +1032,7 @@ var PROD_FIELDS=[["model","型号 *"],["category","类别"],["brand","品牌"],[
 var PF_SAVE=PROD_FIELDS.concat([["spec_text","规格参数"]]);
 var BATCH_FIELDS=PROD_FIELDS.filter(function(f){ return f[0]!=="model"; });
 function editProduct(m,isNew){
-  var p=isNew?{}:(effProduct(m)||{});
+  var p=isNew?{model:""}:(effProduct(m)||{model:m});
   if(isNew){
     // 固定参数模板：新增产品自动带入「默认模板」的固定值与固定规格参数（支持多套模板）
     var _tl=(SYS.settings&&Array.isArray(SYS.settings.dbTemplates))?SYS.settings.dbTemplates:null;
@@ -1692,7 +1693,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 156, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 157, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
