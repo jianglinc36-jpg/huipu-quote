@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=157', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=158', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v157</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v158</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -296,49 +296,74 @@ async function onAuthOK(phone){
 }
 
 /* ================= 云端读写 ================= */
-async function readState(){
-  try{
-    var r=await withTimeout(cloud.database.from("quotation_state").select("data").eq("workspace_id",WS_ID).maybeSingle(),20000);
-    return (r.data&&r.data.data)||{};
-  }catch(e){ throw e; }
+var IMG_PFX="huipu_dbimg_m_"; // v158：图片按型号独立键，传图/删图只写单键（14KB），不再整库 2MB 重传
+var _stateCache=null, _writeChain=null;
+async function readState(force){
+  if(!force&&_stateCache) return _stateCache;
+  var r=await withTimeout(cloud.database.from("quotation_state").select("data").eq("workspace_id",WS_ID).maybeSingle(),20000);
+  var st=(r.data&&r.data.data)||{};
+  if(force||!_stateCache) _stateCache=st; // v158：首次读取也进缓存，之后保存零读
+  return st;
 }
-async function writeStateKeys(patch){
-  // v150：以前是「读整行 + 查行存在 + 写整行」×2 遍 = 6 次请求（整行 2MB，跨境一慢就 statement timeout）。
-  // 现在合并为 1 读 + 1 写，写失败自动重试 2 次（间隔 1.5s/3s）。
+function writeStateKeys(patch){
+  // v158：零读快写——本地全量缓存合并后直接整列写，省掉每次保存约 2MB 的整行下行（egress 超限导致全站变卡的根因）。
+  // patch 值为 null 表示删除该顶层键。失败重试时才强制重读云端（防覆盖他人改动）；串行队列避免并发保存交叉覆盖。
+  if(!_writeChain){ _writeChain=Promise.resolve(); }
+  _writeChain=_writeChain.then(function(){ return _writeStateCore(patch); },function(){ return _writeStateCore(patch); });
+  return _writeChain;
+}
+async function _writeStateCore(patch){
   var lastErr=null;
   for(var att=0;att<3;att++){
     if(att){ await new Promise(function(rs){ setTimeout(rs,1500*att); }); }
     try{
-      var cur=await readState();
-      var merged=Object.assign({},cur,patch);
-      // v143：候选池（specCands）不再由任何界面改写；后台改动资料库时原样保留云端已有池，
-      // 避免「删掉的值又被并集回来」以及「不同模板的值互相串」。
+      if(!_stateCache) await readState(true);
+      var merged=Object.assign({},_stateCache);
+      Object.keys(patch).forEach(function(k){ if(patch[k]===null){ delete merged[k]; } else { merged[k]=patch[k]; } });
+      // v143：候选池（specCands）不再由界面改写，原样保留云端已有池
       try{
-        if(merged[DB_KEY]&&cur[DB_KEY]&&merged[DB_KEY].specCands===undefined){
-          merged[DB_KEY].specCands=cur[DB_KEY].specCands||[];
+        if(merged[DB_KEY]&&_stateCache[DB_KEY]&&merged[DB_KEY].specCands===undefined){
+          merged[DB_KEY].specCands=_stateCache[DB_KEY].specCands||[];
         }
       }catch(e){}
-      // update 带 returning：命中行说明行存在；未命中（空数组）自动转 insert
       var r=await cloud.database.from("quotation_state").update({data:merged,updated_at:new Date().toISOString()}).eq("workspace_id",WS_ID).select("workspace_id");
       if(r.error) throw r.error;
-      if(r.data&&r.data.length){ lastErr=null; break; }
+      if(r.data&&r.data.length){ _stateCache=merged; lastErr=null; break; }
       var r2=await cloud.database.from("quotation_state").insert({workspace_id:WS_ID,owner_id:ME.uid,data:merged,updated_at:new Date().toISOString()});
       if(r2.error) throw r2.error;
-      lastErr=null; break;
-    }catch(e){ lastErr=e; }
+      _stateCache=merged; lastErr=null; break;
+    }catch(e){
+      lastErr=e;
+      if(att<2){ try{ await readState(true); }catch(e2){} }
+    }
   }
   if(lastErr){
     var msg=String((lastErr&&lastErr.message)||lastErr||"");
-    if(/statement timeout|canceling statement/i.test(msg)) throw new Error("云端正忙（保存超时），已自动重试 2 次仍失败。请等几秒再点一次保存即可。");
+    if(/statement timeout|canceling statement/i.test(msg)) throw new Error("云端端正忙（保存超时），已自动重试 2 次仍失败。请等几秒再点一次保存即可。");
     throw lastErr;
   }
+}
+// v158：保存/删除单张图片 = 只写该型号一个键
+async function saveImgForModel(m,url){
+  var p2={}; p2[IMG_PFX+m]=(url||null);
+  await writeStateKeys(p2);
 }
 async function loadSysAndDb(){
   try{
     var st=await readState();
     DB=st[DB_KEY]||{overrides:{},custom:{},specLib:[]};
-    var imgs=st[DBIMG_KEY]||{};
+    // v158：图片改为按型号独立键（huipu_dbimg_m_型号），旧键 huipu_dbimg_v1 只读回填并一次性迁移拆散
+    var imgs={}, _legacy=st[DBIMG_KEY]||{};
+    Object.keys(st).forEach(function(k){ if(k.indexOf(IMG_PFX)===0){ var mm=k.slice(IMG_PFX.length); if(st[k]) imgs[mm]=st[k]; } });
+    Object.keys(_legacy).forEach(function(m){ if(imgs[m]===undefined) imgs[m]=_legacy[m]; });
     Object.keys(imgs).forEach(function(m){ if(!DB.overrides[m]) DB.overrides[m]={}; if(!DB.overrides[m].img) DB.overrides[m].img=imgs[m]; });
+    (async function(){ try{
+      if(Object.keys(_legacy).length){
+        var p={}; Object.keys(_legacy).forEach(function(m){ p[IMG_PFX+m]=_legacy[m]; });
+        p[DBIMG_KEY]={};
+        await writeStateKeys(p);
+      }
+    }catch(e){} })();
     SYS=st[SYS_KEY]||{features:{},settings:{}};
     await tplEnsureCats(); // v155：按分类补齐独立模板（只补一次，绝不覆盖用户已建模板）
     tplBackupOnce(); // v154：每天首次打开后台自动备份模板快照（当天已有则跳过）
@@ -358,7 +383,7 @@ async function saveDb(){
   // 一次读 + 一次写完成，速度比原来快 3 倍
   var patch={};
   var dbOut=Object.assign({},s.db||{}); delete dbOut.specCands; // v143：候选池不随资料库保存改写
-  patch[DB_KEY]=dbOut; patch[DBIMG_KEY]=s.imgs;
+  patch[DB_KEY]=dbOut; // v158：图片不再随资料库整键保存（已按型号独立键），避免每次保存重传全部图片
   await writeStateKeys(patch);
   badge("资料库已保存并同步到云端 ✓",true);
 }
@@ -1023,8 +1048,14 @@ function renderDbTable(){
   wrap.querySelectorAll("[data-img]").forEach(function(b){ b.onclick=function(){ editProductImg(b.dataset.img); }; });
   wrap.querySelectorAll("[data-d]").forEach(function(b){ b.onclick=async function(){
     var m=b.dataset.d; var isCustom=!!DB.custom[m];
-    if(!confirm(isCustom?("删除自定义产品 "+m+"？"):("还原 "+m+" 为内置参数（删除所有后台改动）？"))) return;
-    delete DB.custom[m]; delete DB.overrides[m];
+    if(isCustom){
+      if(!confirm("彻底删除自定义产品 "+m+"？\n（参数、图片将从云端与所有设备移除）")) return;
+      delete DB.custom[m]; delete DB.overrides[m];
+      try{ var pd={}; pd[IMG_PFX+m]=null; await writeStateKeys(pd); }catch(e){}
+    }else{
+      if(!confirm("彻底删除内置产品 "+m+"？\n（从后台与员工端列表移除，可在「还原全部隐藏」恢复）\n\n取消 = 仅还原为内置参数（清空后台改动，保留在列表）")) return;
+      DB.overrides[m]={_hidden:true};
+    }
     try{ await saveDb(); showTab("db"); }catch(e){ alert("保存失败："+(e.message||e)); }
   };});
 }
@@ -1425,7 +1456,7 @@ function batchDeleteSel(){
   ms.forEach(function(m){ if(DB.custom[m]&&!PROD_MAP[m]) ndel++; else nhid++; });
   if(!confirm("选中 "+ms.length+" 个产品：\n· 自定义产品 "+ndel+" 个将被彻底删除\n· 内置产品 "+nhid+" 个将从列表隐藏（可点上方「还原全部隐藏」恢复）\n\n确定执行？")) return;
   ms.forEach(function(m){
-    if(DB.custom[m]&&!PROD_MAP[m]){ delete DB.custom[m]; delete DB.overrides[m]; }
+    if(DB.custom[m]&&!PROD_MAP[m]){ delete DB.custom[m]; delete DB.overrides[m]; try{ var pd={}; pd[IMG_PFX+m]=null; writeStateKeys(pd); }catch(e){} }
     else { var ov=DB.overrides[m]=DB.overrides[m]||{}; ov._hidden=true; }
   });
   (async function(){
@@ -1524,7 +1555,7 @@ function editProductImg(m){
     +'<div class="bar"><input type="file" id="pimgFile" accept="image/*"><button class="btn ghost" id="pimgClr">清除自定义图</button><button class="btn ghost" id="pimgCancel">关闭</button></div>'
     +'<div class="hint" id="pimgHint">点「选择文件」选图，或直接把图片<b>拖进本弹窗 / Ctrl+V 粘贴</b>。上传后自动压缩到合理尺寸并同步云端。</div>');
   $("pimgCancel").onclick=closeModal;
-  $("pimgClr").onclick=async function(){ if(DB.overrides[m]) delete DB.overrides[m].img; try{ await saveDb(); closeModal(); showTab("db"); }catch(e){ alert(e.message||e); } };
+  $("pimgClr").onclick=async function(){ if(DB.overrides[m]) delete DB.overrides[m].img; try{ await saveImgForModel(m,null); closeModal(); badge("已清除自定义图 ✓",true); showTab("db"); }catch(e){ alert(e.message||e); } };
 
   function setStatus(t,err){
     var h=$("pimgHint"); if(h){ h.innerHTML=err?'<span style="color:#c0392b;font-weight:700">'+esc(t)+'</span>':esc(t); }
@@ -1535,7 +1566,7 @@ function editProductImg(m){
       setStatus("正在保存到云端…");
       if(!DB.overrides[m]) DB.overrides[m]={};
       DB.overrides[m].img=url;
-      await saveDb();
+      await saveImgForModel(m,url); // v158：单键上传（约14KB），速度提升约 100 倍
       closeModal(); badge("图片已保存 ✓"+(tag?("（"+tag+"）"):""),true); showTab("db");
     }catch(e){ setStatus("保存失败："+((e&&(e.message||e.error||JSON.stringify(e)))||e),true); alert("图片保存失败："+((e&&(e.message||e.error))||e)); }
   }
@@ -1693,7 +1724,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 157, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 158, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
