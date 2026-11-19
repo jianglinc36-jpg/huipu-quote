@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v157</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v158</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -1515,10 +1515,14 @@ async function mergeCloudDb(){
         specLib:(cdb.specLib&&cdb.specLib.length)?cdb.specLib:(DB.specLib||[]),
         specCands:(cdb.specCands&&cdb.specCands.length)?cdb.specCands:(DB.specCands||[])
       };
-      // 图片独立通道：云端图片优先覆盖；本机有而云端没有的图保留
+      // v158：图片按型号独立键（huipu_dbimg_m_型号）+ 旧键回填；云端为权威——
+      // 本机图仅当云端仍认识该型号（custom/overrides/图存在）时保留，后台彻底删除的产品不再被本机旧图复活
       const localImgs=loadJSON(DBIMG_KEY,null)||{};
-      const cimg=st.data[DBIMG_KEY]||{};
-      Object.keys(localImgs).forEach(m=>{ const t=merged.overrides[m]=merged.overrides[m]||{}; if(!t.img) t.img=localImgs[m]; });
+      const cimg={};
+      Object.keys(st.data).forEach(k=>{ if(k.indexOf("huipu_dbimg_m_")===0){ const mm=k.slice(14); if(st.data[k]) cimg[mm]=st.data[k]; } });
+      Object.keys(st.data[DBIMG_KEY]||{}).forEach(m=>{ if(cimg[m]===undefined) cimg[m]=st.data[DBIMG_KEY][m]; });
+      const cloudKnows=m=> !!(cdb.custom&&cdb.custom[m]) || !!(cdb.overrides&&cdb.overrides[m]) || (m in cimg);
+      Object.keys(localImgs).forEach(m=>{ if(cloudKnows(m)){ const t=merged.overrides[m]=merged.overrides[m]||{}; if(!t.img) t.img=localImgs[m]; } });
       Object.keys(cimg).forEach(m=>{ const t=merged.overrides[m]=merged.overrides[m]||{}; t.img=cimg[m]; });
       if(JSON.stringify(merged)!==JSON.stringify(DB)){
         DB=merged; saveDB_noPush();
@@ -1643,8 +1647,17 @@ async function _doPushCloudCore(){
       }
       // v146：图片字典逐型号合并——后台刚上传的图不再被本机旧字典整体抹掉
       //（并集：本机新增的图照常上传；云端有而本机暂缺的图原样保留）
-      const limg=payload.data[DBIMG_KEY]||{}, cimg=(rows&&rows.data&&rows.data[DBIMG_KEY])||{};
-      payload.data[DBIMG_KEY]=Object.assign({}, cimg, limg);
+      const limg=payload.data[DBIMG_KEY]||{};
+      // v158：图片以云端为权威（per-model 独立键），本机不再回传整份旧字典——
+      // 后台删除的产品/图片不会被本机缓存复活；本机新增图仅在云端仍认识该型号时按单键补传
+      const cimg={};
+      const cdb2=(rows&&rows.data&&rows.data[DB_KEY])||{};
+      if(rows&&rows.data){
+        Object.keys(rows.data).forEach(k=>{ if(k.indexOf("huipu_dbimg_m_")===0){ const mm=k.slice(14); if(rows.data[k]) cimg[mm]=rows.data[k]; } });
+        Object.keys(rows.data[DBIMG_KEY]||{}).forEach(m=>{ if(cimg[m]===undefined) cimg[m]=rows.data[DBIMG_KEY][m]; });
+      }
+      payload.data[DBIMG_KEY]=cimg;
+      Object.keys(limg).forEach(m=>{ if(!(m in cimg)&&((cdb2.custom&&cdb2.custom[m])||(cdb2.overrides&&cdb2.overrides[m]))) payload.data["huipu_dbimg_m_"+m]=limg[m]; });
       // v153：huipu_sys_v1（固定参数模板/功能开关/系统设置）只由后台管理，前端只读。
       // 本机 sys 一旦是旧版（缺 dbTemplates），推送会把云端模板整体抹掉 → 一律以云端为准。
       if(rows&&rows.data&&rows.data["huipu_sys_v1"]) payload.data["huipu_sys_v1"]=rows.data["huipu_sys_v1"];
@@ -5713,7 +5726,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=157', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=158', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5911,7 +5924,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 157;
+  var APP_VER = 158;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
