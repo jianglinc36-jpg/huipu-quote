@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=155', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=156', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v155</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v156</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -237,9 +237,12 @@ var KEEP_KEY = "huipu_keep_login_v1";
 var SEVEN_DAYS = 7*24*3600*1000;
 function recordActive(){ try{ localStorage.setItem(KEEP_KEY, String(Date.now())); }catch(e){} }
 function keepAlive(){ var t=Number(localStorage.getItem(KEEP_KEY)||"0"); return t>0 && (Date.now()-t) < SEVEN_DAYS; }
+var OWNER_EMAILS=["1972838168@qq.com"]; /* v156：管理员邮箱白名单 */
 function isOwnerUser(){
   var d=(ME&&ME.phone?ME.phone:"").replace(/\D/g,"");
-  return d.length>0 && d.endsWith(OWNER_PHONE);
+  if(d.length>0 && d.endsWith(OWNER_PHONE)) return true;
+  var em=String((ME&&ME.email)||"").trim().toLowerCase();
+  return em.length>0 && OWNER_EMAILS.indexOf(em)>=0;
 }
 $("ltPhone")&&($("ltPhone").onclick=function(){ $("panePhone").style.display=""; $("paneEmail").style.display="none"; });
 $("ltEmail")&&($("ltEmail").onclick=function(){ $("paneEmail").style.display=""; $("panePhone").style.display="none"; });
@@ -276,7 +279,7 @@ async function onAuthOK(phone){
   var uid=null;
   try{ var s=await cloud.auth.getSession(); uid=s&&s.data&&s.data.user?s.data.user.id:null; }catch(e){}
   if(!uid){ $("phoneErr").textContent=$("emailErr").textContent="登录成功但未取到用户信息，请重试"; return; }
-  ME={uid:uid,phone:phone||(localStorage.getItem("huipu_my_phone")||"")};
+  ME={uid:uid,phone:phone||(localStorage.getItem("huipu_my_phone")||""),email:(function(){ try{ return (s&&s.data&&s.data.user&&s.data.user.email)||""; }catch(e){ return ""; } })()};
   // 管理员校验：主账号手机号 或 成员表 owner 角色
   var ok=isOwnerUser();
   if(!ok){
@@ -287,7 +290,7 @@ async function onAuthOK(phone){
   }
   if(!ok){ $("phoneErr").textContent=$("emailErr").textContent="此账号不是管理员，无法进入后台。"; return; }
   $("loginGate").style.display="none"; $("appMain").style.display="flex";
-  $("whoBox").textContent="👤 "+(ME.phone||uid.slice(0,8))+"（管理员）";
+  $("whoBox").textContent="👤 "+(ME.phone||ME.email||uid.slice(0,8))+"（管理员）";
   await loadSysAndDb();
   showTab("dash");
 }
@@ -1680,7 +1683,7 @@ window.addEventListener("load",function(){
     }
     if(!ok) return; // 非管理员 → 停留登录页
     $("loginGate").style.display="none"; $("appMain").style.display="flex";
-    $("whoBox").textContent="👤 "+(ME.phone||uid.slice(0,8))+"（管理员）";
+    $("whoBox").textContent="👤 "+(ME.phone||ME.email||uid.slice(0,8))+"（管理员）";
     await loadSysAndDb();
     showTab("dash");
   }).catch(function(){ /* 停留在登录页 */ });
@@ -1689,7 +1692,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 155, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 156, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
