@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=158', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=159', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v158</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v159</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -237,7 +237,7 @@ var KEEP_KEY = "huipu_keep_login_v1";
 var SEVEN_DAYS = 7*24*3600*1000;
 function recordActive(){ try{ localStorage.setItem(KEEP_KEY, String(Date.now())); }catch(e){} }
 function keepAlive(){ var t=Number(localStorage.getItem(KEEP_KEY)||"0"); return t>0 && (Date.now()-t) < SEVEN_DAYS; }
-var OWNER_EMAILS=["1972838168@qq.com"]; /* v156：管理员邮箱白名单 */
+var OWNER_EMAILS=["1972838168@qq.com","15967448116@huipu-quote.com"]; /* v156：管理员邮箱白名单 */
 function isOwnerUser(){
   var d=(ME&&ME.phone?ME.phone:"").replace(/\D/g,"");
   if(d.length>0 && d.endsWith(OWNER_PHONE)) return true;
@@ -269,7 +269,8 @@ $("phoneLogin").onclick=async function(){
   onAuthOK(ph);
 };
 $("emailPwdLogin").onclick=async function(){
-  var r=await cloud.auth.signInWithPassword({email:$("email").value.trim(),password:$("emailPwd").value});
+  var em=$("email").value.trim(); if(em && em.indexOf("@")<0) em=em+"@huipu-quote.com"; /* v159：纯数字账号自动补域名 */
+  var r=await cloud.auth.signInWithPassword({email:em,password:$("emailPwd").value});
   if(r.error){ $("emailErr").textContent="账号或密码错误"; return; }
   onAuthOK("");
 };
@@ -1724,7 +1725,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 158, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 159, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
