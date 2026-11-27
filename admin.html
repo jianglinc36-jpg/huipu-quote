@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=173', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=174', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v173</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v174</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -203,6 +203,112 @@ try {
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 function withTimeout(p,ms){ return Promise.race([Promise.resolve(p),new Promise(function(_,rej){ setTimeout(function(){ rej(new Error("请求超时，请重试")); },ms||15000); })]); }
+
+/* ================= v174：报价记录加载加固 ================= */
+var SAVES_CACHE_KEY = "hp_saves_cache_v1";
+var _savesOfflineAt = null;
+function hpSavesCacheRead(){
+  try{ var o=JSON.parse(localStorage.getItem(SAVES_CACHE_KEY)||"null"); return (o&&Array.isArray(o.rows))?o:null; }
+  catch(e){ return null; }
+}
+function hpSavesCacheWrite(rows){
+  try{
+    var at=new Date().toISOString();
+    var s=JSON.stringify({at:at,rows:rows});
+    if(s.length>1500000) s=JSON.stringify({at:at,rows:rows.slice(0,150)});
+    localStorage.setItem(SAVES_CACHE_KEY,s);
+  }catch(e){}
+}
+function hpDiagErr(e){
+  var m=String((e&&e.message)||e||"未知错误");
+  if(/超时|timeout|abort|AbortError/i.test(m)) return "云端在限定时间内没有响应（连接超时）";
+  if(/failed to fetch|network|ECONNRESET|socket|hang up|Load failed/i.test(m)) return "网络不通，无法连接云端";
+  if(/401|403|jwt|JWT|permission|RLS|not authorized|凭证/i.test(m)) return "登录状态已失效，或当前账号没有读取权限";
+  if(/does not exist|relation|PGRST205|42P01|404/i.test(m)) return "云端「报价记录」数据表不存在";
+  if(/429|quota|egress|limit exceeded/i.test(m)) return "云端请求额度已用尽（免费版流量/请求数限制）";
+  return m;
+}
+function hpIsAuthErr(e){
+  return /401|403|jwt|JWT|permission|RLS|not authorized|凭证/i.test(String((e&&e.message)||e||""));
+}
+function hpRestToken(){
+  try{
+    var n=localStorage.length;
+    for(var i=0;i<n;i++){
+      var k=localStorage.key(i);
+      if(k&&/^sb-.*-auth-token$/.test(k)){
+        var o=JSON.parse(localStorage.getItem(k)||"{}");
+        if(o&&o.access_token) return o.access_token;
+        if(o&&o.currentSession&&o.currentSession.access_token) return o.currentSession.access_token;
+      }
+    }
+  }catch(e){}
+  return "";
+}
+/* 绕过 supabase-js 的自动刷新等待：直接用本地 token 打 PostgREST */
+async function hpRestDirect(ms){
+  var tok=hpRestToken();
+  if(!tok) throw new Error("本地登录凭证缺失，请重新登录后再试");
+  var ctl=(typeof AbortController!=="undefined")?new AbortController():null;
+  var tm=ctl?setTimeout(function(){ ctl.abort(); },ms||7000):null;
+  try{
+    var u=SUPABASE_URL+"/rest/v1/quotation_saves?select=id,user_id,user_name,title,created_at,summary"
+      +"&workspace_id=eq."+encodeURIComponent(WS_ID)+"&order=created_at.desc&limit=500";
+    var opt={headers:{apikey:SUPABASE_ANON,Authorization:"Bearer "+tok}};
+    if(ctl) opt.signal=ctl.signal;
+    var r=await fetch(u,opt);
+    var txt=await r.text();
+    if(!r.ok) throw new Error("HTTP "+r.status+" "+txt.slice(0,160));
+    return JSON.parse(txt)||[];
+  }finally{ if(tm) clearTimeout(tm); }
+}
+function hpSavesOK(rows){
+  _savesCache=rows; hpSavesCacheWrite(rows); _savesOfflineAt=null; return rows;
+}
+/* 统一失败页：可点击重试 / 重新登录 / 诊断信息，不再只留一行红字 */
+function hpLoadError(M,e,tab,label){
+  var name=label||"报价记录", why=hpDiagErr(e), cache=hpSavesCacheRead();
+  M.innerHTML='<div class="card" style="border-left:5px solid #c0392b">'
+    +'<h3 style="margin:0 0 8px">⚠ '+esc(name)+'暂时无法连接云端</h3>'
+    +'<div class="err" style="margin-bottom:10px">'+esc(why)+'</div>'
+    +'<div class="hint" style="line-height:1.9">'
+      +'· 已自动尝试 3 次（常规连接 + 绕过登录组件直连），仍未能取到数据。<br>'
+      +'· 常见原因：本机网络/代理不通、Supabase 项目被暂停或流量额度用尽、登录会话过期。<br>'
+      +'· 请先检查网络；若持续出现，打开 Supabase 控制台确认项目状态与用量后重试。'
+    +'</div>'
+    +'<div class="bar" style="margin-top:14px">'
+      +'<button class="btn" id="hpRetry">🔄 重新加载</button>'
+      +'<button class="btn ghost" id="hpRelogin">🔑 重新登录</button>'
+      +'<button class="btn ghost" id="hpDiag">📋 查看诊断信息</button>'
+      +'<span class="sp" style="flex:1"></span>'
+      +'<span class="hint">'+(cache?('本地缓存 '+cache.rows.length+' 条 · '+esc(String(cache.at).slice(0,16).replace("T"," "))):'暂无本地缓存')+'</span>'
+    +'</div>'
+    +'<pre id="hpDiagBox" style="display:none;margin-top:12px;padding:10px;background:#f5f7fa;border-radius:6px;white-space:pre-wrap;font-size:12px;color:#333"></pre>'
+    +'</div>';
+  $("hpRetry").onclick=function(){ _savesCache=null; showTab(tab||"quotes"); };
+  $("hpRelogin").onclick=async function(){ try{ await cloud.auth.signOut(); }catch(e2){} location.reload(); };
+  $("hpDiag").onclick=function(){
+    var box=$("hpDiagBox");
+    if(box.style.display==="none"){
+      var sess="（无）";
+      try{ var o=JSON.parse(localStorage.getItem("sb-viocphguqimuiobehbqg-auth-token")||"{}"); if(o.expires_at) sess=new Date(o.expires_at*1000).toLocaleString(); }catch(e2){}
+      box.textContent="云端地址："+SUPABASE_URL+"\n工作区："+WS_ID
+        +"\n最后错误："+String((e&&e.message)||e||"")
+        +"\n登录后到期："+sess
+        +"\n本地缓存："+(cache?cache.rows.length+" 条 @ "+cache.at:"无")
+        +"\n页面版本：v174\n时间："+new Date().toLocaleString();
+      box.style.display="block";
+    } else box.style.display="none";
+  };
+}
+function hpOfflineNote(){
+  if(!_savesOfflineAt) return "";
+  return '<div class="hint" style="margin-bottom:10px;padding:10px;background:#fff4e5;border:1px solid #f0c36d;border-radius:8px;color:#8a5a00;line-height:1.8">'
+    +'⚠ 云端暂时连不上，下面显示的是<b>本机上次成功同步的缓存</b>（'+esc(String(_savesOfflineAt).slice(0,16).replace("T"," "))+'），可能不是最新。'
+    +'<button class="btn sm" id="hpOfflineRetry" style="margin-left:10px">🔄 重新加载</button></div>';
+}
+/* ================= /v174 ================= */
+
 function money(n){ n=Number(n)||0; return "¥"+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,","); }
 function fmtDT(s){ if(!s) return ""; return String(s).slice(0,16).replace("T"," "); }
 function badge(msg,ok,ms){ var b=$("sysBadge"); b.textContent=msg; b.style.display="block"; b.style.background=ok?"#2e7d32":"#1f4e79"; clearTimeout(badge._t); badge._t=setTimeout(function(){ b.style.display="none"; },ms||2600); }
@@ -513,16 +619,35 @@ $("modal").addEventListener("click",function(e){ if(e.target===$("modal")) close
 
 /* ---------- 概览 ---------- */
 var _savesCache=null;
+/* v174：常规查询 7s → 直连 7s → 直连重试 7s → 本地缓存兜底，最长约 22s */
 async function fetchSaves(){
-  var r=await withTimeout(cloud.database.from("quotation_saves").select("id,user_id,user_name,title,created_at,summary").eq("workspace_id",WS_ID).order("created_at",{ascending:false}).limit(500),20000);
-  if(r.error) throw r.error;
-  _savesCache=r.data||[]; return _savesCache;
+  var lastErr=null;
+  try{
+    var r=await withTimeout(cloud.database.from("quotation_saves").select("id,user_id,user_name,title,created_at,summary").eq("workspace_id",WS_ID).order("created_at",{ascending:false}).limit(500),7000);
+    if(r.error) throw r.error;
+    return hpSavesOK(r.data||[]);
+  }catch(e){ lastErr=e; }
+  if(!hpIsAuthErr(lastErr)){
+    for(var att=0;att<2;att++){
+      try{ return hpSavesOK(await hpRestDirect(7000)); }
+      catch(e2){ lastErr=e2; if(hpIsAuthErr(e2)) break; }
+      if(att<1) await new Promise(function(rs){ setTimeout(rs,600); });
+    }
+  }
+  var c=hpSavesCacheRead();
+  if(c&&c.rows&&c.rows.length){
+    _savesCache=c.rows; _savesOfflineAt=c.at;
+    badge("⚠ 云端连接失败，已显示本机缓存 "+c.rows.length+" 条",false,8000);
+    return _savesCache;
+  }
+  _savesOfflineAt=null;
+  throw new Error(hpDiagErr(lastErr));
 }
 function sumOf(r){ var s=r.summary||{}; return {customer:s.customer||"",items:s.items||0,qty:Number(s.qty)||0,amount:Number(s.amount)||0,currency:s.currency||"CNY",status:s.status||"active",type:s.type||"quote",products:s.products||[]}; }
 function monthKey(s){ return String(s||"").slice(0,7); }
 async function renderDash(M){
   var rows,mems=[];
-  try{ rows=await fetchSaves(); }catch(e){ M.innerHTML='<div class="err">记录加载失败：'+esc(e.message||e)+'</div>'; return; }
+  try{ rows=await fetchSaves(); }catch(e){ hpLoadError(M,e,"dash","概览数据"); return; }
   try{ var mr=await withTimeout(cloud.database.from("quotation_members").select("user_id,role,status").eq("workspace_id",WS_ID),15000); mems=(mr.data||[]).filter(function(x){return x.status==="active";}); }catch(e){}
   var total=0,mCount=0,curMonth=monthKey(new Date().toISOString()),archived=0;
   var byCust={},byMonth={},byProd={};
@@ -561,7 +686,7 @@ async function renderDash(M){
 var _quoteFilter="";
 var _savesAll=null; // v132b：报价记录缓存，搜索时只重绘表格不动工具栏
 async function renderQuotes(M){
-  var rows; try{ rows=await fetchSaves(); }catch(e){ M.innerHTML='<div class="err">加载失败：'+esc(e.message||e)+'</div>'; return; }
+  var rows; try{ rows=await fetchSaves(); }catch(e){ hpLoadError(M,e,"quotes","报价记录"); return; }
   _savesAll=rows;
   var h='<div class="card"><div class="bar">'
     +'<input id="qSearch" placeholder="搜索客户 / 标题" style="width:200px" value="'+esc(_quoteFilter)+'">'
@@ -571,7 +696,8 @@ async function renderQuotes(M){
     +'<button class="btn danger sm" id="qDelSel" style="display:none">🗑 批量删除(<span id="qSelCnt">0</span>)</button>'
     +'<span class="sp" style="flex:1"></span><span class="hint" id="qCntHint"></span>'
     +'</div><div id="qTblWrap"></div></div>';
-  M.innerHTML=h;
+  M.innerHTML=hpOfflineNote()+h;
+  var _offR=$("hpOfflineRetry"); if(_offR) _offR.onclick=function(){ _savesCache=null; showTab("quotes"); };
   /* v132b：搜索框节点不再随重渲染销毁——输入时只刷新 #qTblWrap，可连续输入 */
   $("qSearch").oninput=function(){ _quoteFilter=this.value; clearTimeout(renderQuotes._t); renderQuotes._t=setTimeout(renderQuotesTable,250); };
   $("qNew").onclick=function(){ openNewQuote(); };
@@ -714,7 +840,7 @@ async function viewQuote(id){
 
 /* ---------- 客户 ---------- */
 async function renderCusts(M){
-  var rows; try{ rows=await fetchSaves(); }catch(e){ M.innerHTML='<div class="err">加载失败：'+esc(e.message||e)+'</div>'; return; }
+  var rows; try{ rows=await fetchSaves(); }catch(e){ hpLoadError(M,e,"custs","客户列表"); return; }
   var by={},n=0;
   rows.forEach(function(r){ var s=sumOf(r); if(!s.customer||s.status==="deleted") return; n++;
     var c=by[s.customer]=by[s.customer]||{n:0,amt:0,last:""};
@@ -813,7 +939,7 @@ async function delInvite(id){
 async function renderMembers(M){
   var rows, invs;
   try{ var r=await withTimeout(cloud.database.from("quotation_members").select("id,user_id,role,perms,status,joined_at").eq("workspace_id",WS_ID),15000); rows=r.data||[]; }
-  catch(e){ M.innerHTML='<div class="err">加载失败：'+esc(e.message||e)+'</div>'; return; }
+  catch(e){ hpLoadError(M,e,"members","成员列表"); return; }
   try{ var r2=await withTimeout(cloud.database.from("quotation_invites").select("id,token,role,perms,status,created_at").eq("workspace_id",WS_ID).eq("status","open").order("created_at",{ascending:false}),15000); invs=r2.data||[]; }
   catch(e){ invs=[]; }
   var h='<div class="card"><h3>➕ 添加成员</h3><div class="bar">'
@@ -2000,7 +2126,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 173, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 174, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
