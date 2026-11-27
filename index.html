@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v174</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v175</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5770,7 +5770,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=174', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=175', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5968,7 +5968,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 174;
+  var APP_VER = 175;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
@@ -6288,12 +6288,26 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         if(t) pushLine(t);
       });
     });
+    /* v175：自定义参数的名称与取值也进入全文翻译池 */
+    try{
+      var _cs=d&&d.customParams;
+      if(Array.isArray(_cs)) _cs.forEach(function(c){ if(!c) return; pushLine(c.label); pushLine(c.value); });
+    }catch(e){}
     return out;
   }
   /* 把译文套到渲染数据上：逐行查表，保留换行；型号/编码/图片原样 */
   function pqsApplyTrans(d){
     var mp=null; try{ mp=window.__hpPqsT||null; }catch(e){}
     if(!mp) return d;
+    /* v175：自定义参数译文只写副本，绝不改云端模板里的数组 */
+    try{
+      if(Array.isArray(d.customParams)) d.customParams=d.customParams.map(function(c){
+        if(!c) return c;
+        var o={}; Object.keys(c).forEach(function(k){ o[k]=c[k]; });
+        ['label','value'].forEach(function(k){ var v=String(o[k]==null?'':o[k]); if(v&&mp[v]!=null&&mp[v]!=='') o[k]=mp[v]; });
+        return o;
+      });
+    }catch(e){}
     Object.keys(d).forEach(function(k){
       if(PQS_NO_TRANS.indexOf(k)>=0) return;
       var v=d[k]; if(typeof v!=='string'||!v.trim()) return;
@@ -6317,7 +6331,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     var raw=null, texts=[];
     try{ raw=mergedRaw(); texts=pqsCollectTexts(raw); }catch(e){}
     /* 签名只随「语言 + 后台模板内容」变化，不受译文副本影响，避免循环重译 */
-    var sig=lang+'|';
+    var _pg=0; try{ _pg=Number(window.__hpPqsPage)||0; }catch(e){}
+    var sig=lang+'|'+_pg+'|';
     try{ sig+=JSON.stringify(cfg()||{}); }catch(e){ sig+=texts.join('|'); }
     if(sig===_pqsTransSig) return;
     _pqsTransBusy=true;
@@ -6365,7 +6380,10 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
 
   function today(){ var d=new Date(); function p(n){return (n<10?'0':'')+n;} return d.getFullYear()+'/'+p(d.getMonth()+1)+'/'+p(d.getDate()); }
   function pickItem(){
-    var c=cfg()||{}; var want=c.pqsModel||c._model||'';
+    var c=cfg()||{};
+    var _pa=Array.isArray(c.products)?c.products.filter(Boolean):[];
+    var _pi=0; try{ _pi=Math.max(0,Math.min(Number(window.__hpPqsPage)||0,_pa.length-1)); }catch(e){}
+    var want=(_pa.length&&_pa[_pi]&&_pa[_pi].pqsModel)||c.pqsModel||c._model||'';
     var arr=[]; try{ arr=(typeof items!=='undefined'&&items)?items.filter(Boolean):[]; }catch(e){}
     if(want){ for(var i=0;i<arr.length;i++){ if(String(arr[i].model||'')===want) return arr[i]; } }
     return arr[0]||{};
@@ -6391,12 +6409,13 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   function tplDefault(){ /* v165：PQS 模板完全独立——只由后台 huipu_sys_v1.settings.pqs 维护，
      不再从标准报价单的卖方信息/商务条款表单(readSeller/readTerms)取任何默认值。
      因此后台修改 PQS 参数绝不会读取或影响既有报价单的任何数据。 */
-    return { brand:'HUIPU', companyCn:'Professional Hair Dryer Manufacturer',
-      date:today(), productClass:'II', hsCode:'8516310000',
-      certificates:'GS, CE, EMC, ERP, ROHS, LVD (from SGS and TUV)',
+    /* v175：不填即不展示——清空全部硬编码示例值，后台模板是唯一数据来源 */
+    return { brand:'HUIPU', companyCn:'',
+      date:today(), productClass:'', hsCode:'',
+      certificates:'',
       factoryName:'', salesPerson:'', mobile:'', email:'', addr:'', web:'',
-      factoryAudit:'BSCI & ISO9001', workers:'300',
-      quoteNote:'', extraCost:'', fobPort:'Ningbo, China', moq:'', deliveryDays:'', paymentTerm:'',
+      factoryAudit:'', workers:'',
+      quoteNote:'', extraCost:'', fobPort:'', moq:'', deliveryDays:'', paymentTerm:'',
       status:'Ready For Production', picture2:'' };
   }
   /* v168：后台 settings.pqs 是前端 PQS 单上每一项信息的唯一来源（后台可全量修改）。
@@ -6406,15 +6425,25 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   function mergedRaw(){
     var c=cfg()||{};
     var d=Object.assign(tplDefault(), c);
+    /* v175b：多产品时，当前页的产品字段覆盖顶层；其余参数全部共用 */
+    var _pa=Array.isArray(c.products)?c.products.filter(Boolean):[];
+    var _pi=0; try{ _pi=Math.max(0,Math.min(Number(window.__hpPqsPage)||0,_pa.length-1)); }catch(e){}
+    if(_pa.length){
+      var pp=_pa[_pi]||{};
+      ['pqsModel','modelNumber','productName','features','productClass','unitSizeWeight','colorBox','exportCarton','qtyCarton','containerQty','hsCode','certificates','picture','picture2'].forEach(function(k){
+        /* 多产品时产品字段只取当前产品，未填即空，绝不继承顶层（第一个产品）的残留值 */
+        d[k]=(pp[k]!==undefined?pp[k]:'');
+      });
+    }
     var prod=prodOf(pqsItemTranslated());
-    PQS_PROD_FALLBACK.forEach(function(k){
+    if(!c.noFallback) PQS_PROD_FALLBACK.forEach(function(k){
       if(String(d[k]==null?'':d[k]).trim()==='') d[k]=prod[k];
     });
     /* v170：后台/缓存里若存了无效图片串（非空但加载不出来），清空并回退资料库图，避免出现破图 */
     ['picture','picture2'].forEach(function(k){
       var v=String(d[k]==null?'':d[k]).trim();
       if(v && !/^(data:image\/|https?:\/\/|blob:|\/|\.\/)/i.test(v)) d[k]='';
-      if(k==='picture' && !String(d[k]==null?'':d[k]).trim()) d[k]=prod.picture||'';
+      if(!c.noFallback && k==='picture' && !String(d[k]==null?'':d[k]).trim()) d[k]=prod.picture||'';
     });
     if(!String(d.date||'').trim()) d.date=today();
     return d;
@@ -6435,7 +6464,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     var pic=d.picture||'', pic2=d.picture2||'';
     var brand=String(d.brand||'HUIPU');
     var comp=String(d.factoryName||brand);
-    var cn=String(d.companyCn||'Professional Hair Dryer Manufacturer');
+    var cn=String(d.companyCn||'');
     var addr=String(d.addr||''), web=String(d.web||'');
     var tel=String(d.mobile||''), mail=String(d.email||'');
     function esc(x){ return E(x); }
@@ -6461,15 +6490,35 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       picHtml='<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#a9b6c2;font-size:12px;letter-spacing:1.6px"><div style="font-size:48px;line-height:1;margin-bottom:10px;color:#cfd9e2">&#9635;</div>'+T.productPicture+'</div>';
     }
     /* v169：用户框选不需要——HS Code / Certificates 已在左栏「HS / CERTIFICATION」显示，此处不再重复 */
-    var techRows=[[T.productClass,d.productClass],[T.unitSize,d.unitSizeWeight],[T.colorBox,d.colorBox],[T.exportCarton,d.exportCarton],[T.qtyCarton,d.qtyCarton],[T.containerQty,d.containerQty]];
-    var comRows=[[T.fobPort,d.fobPort],[T.moq,d.moq],[T.deliveryDays,d.deliveryDays],[T.paymentTerm,d.paymentTerm],[T.brand,brand]];
+    /* v175：固定参数按后台「显示开关」过滤，自定义参数按所选表格追加 */
+    var _hid=Array.isArray(d.hiddenFields)?d.hiddenFields:[];
+    var _vis=function(k){ return _hid.indexOf(k)<0; };
+    var _cus=Array.isArray(d.customParams)?d.customParams:[];
+    var techRows=[];
+    if(_vis('productClass')) techRows.push([T.productClass,d.productClass]);
+    if(_vis('unitSizeWeight')) techRows.push([T.unitSize,d.unitSizeWeight]);
+    if(_vis('colorBox')) techRows.push([T.colorBox,d.colorBox]);
+    if(_vis('exportCarton')) techRows.push([T.exportCarton,d.exportCarton]);
+    if(_vis('qtyCarton')) techRows.push([T.qtyCarton,d.qtyCarton]);
+    if(_vis('containerQty')) techRows.push([T.containerQty,d.containerQty]);
+    var comRows=[[T.fobPort,d.fobPort],[T.moq,d.moq],[T.deliveryDays,d.deliveryDays],[T.paymentTerm,d.paymentTerm]];
+    _cus.forEach(function(c){
+      if(!c||c.show===false) return;
+      var lab=String(c.label||'').trim(); if(!lab) return;
+      var pair=[esc(lab),c.value||''];
+      if(c.pos==='com') comRows.push(pair); else techRows.push(pair);
+    });
+    /* v175：留空的参数行、整块没有内容的版块，一律自动不展示 */
+    var _has=function(v){ return String(v==null?'':v).trim()!==''; };
+    techRows=techRows.filter(function(r){ return _has(r[1]); });
+    comRows=comRows.filter(function(r){ return _has(r[1]); });
     var h=[];
     h.push('<div class="pv-cont" style="width:1123px;height:794px;box-sizing:border-box;overflow:hidden;background:#fff;margin:0 auto;box-shadow:0 2px 12px rgba(20,40,80,.16);font-family:Arial,Helvetica,sans-serif;color:#1c2733;font-size:12px;line-height:1.4;display:flex;flex-direction:column">');
     /* 顶条 */
     h.push('<div style="height:9px;background:linear-gradient(90deg,#1F4E79,#2E75B6);flex:none"></div>');
     /* 品牌头 */
     h.push('<div style="flex:none;padding:13px 26px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e3e9ee">');
-    h.push('<div style="display:flex;align-items:center"><div style="width:48px;height:48px;background:#1F4E79;color:#fff;font-size:18px;font-weight:800;letter-spacing:1px;display:flex;align-items:center;justify-content:center;border-radius:3px;margin-right:12px">HP</div><div><div style="font-size:17px;font-weight:800;color:#1F4E79;white-space:nowrap">'+esc(comp)+'</div><div style="font-size:10.5px;color:#657684;margin-top:3px;white-space:nowrap">'+esc(cn)+' &nbsp;|&nbsp; '+esc(brand)+'</div></div></div>');
+    h.push('<div style="display:flex;align-items:center"><div style="width:48px;height:48px;background:#1F4E79;color:#fff;font-size:18px;font-weight:800;letter-spacing:1px;display:flex;align-items:center;justify-content:center;border-radius:3px;margin-right:12px">HP</div><div><div style="font-size:17px;font-weight:800;color:#1F4E79;white-space:nowrap">'+esc(comp)+'</div><div style="font-size:10.5px;color:#657684;margin-top:3px;white-space:nowrap">'+(cn?esc(cn)+' &nbsp;|&nbsp; '+esc(brand):'')+'</div></div></div>');
     h.push('<div style="text-align:right"><div style="font-size:19px;font-weight:800;color:#1F4E79;letter-spacing:.5px;white-space:nowrap">'+T.title+'</div><div style="font-size:10.8px;color:#657684;margin-top:5px;white-space:nowrap">'+T.date+': <b style="color:#1c2733">'+esc(d.date)+'</b> &nbsp;&nbsp;|&nbsp;&nbsp; '+T.model+': <b style="color:#1c2733">'+esc(d.modelNumber)+'</b></div></div>');
     h.push('</div>');
     /* 主体三栏 */
@@ -6478,23 +6527,32 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     h.push('<div style="width:32%;box-sizing:border-box;border:1px solid #e5ebf0;border-radius:4px;padding:12px 13px;display:flex;flex-direction:column;background:#fff">');
     h.push('<div style="height:400px;flex:none;border:1px solid #e2e9ee;border-radius:3px;background:#fafcfd;overflow:hidden;margin-bottom:9px">'+picHtml+'</div>');
     h.push('<div style="border-left:4px solid #2E75B6;padding:2px 0 3px 11px;margin-bottom:10px"><div style="font-size:9.5px;letter-spacing:1.4px;color:#7b8b98;font-weight:700">'+T.product+'</div><div style="font-size:17.5px;font-weight:800;color:#1F4E79;line-height:1.22;word-break:break-word">'+esc(d.productName)+'</div><div style="font-size:11px;color:#4a5c6b;margin-top:4px">'+T.modelNo+' <b style="color:#1F4E79">'+esc(d.modelNumber)+'</b></div></div>');
-    h.push('<div style="margin-top:auto;padding-top:8px">'+sec(T.hsCert)+'<div style="font-size:10.5px;line-height:1.65;color:#3d4f5d"><div><b>'+T.hsCode+':</b> '+esc(d.hsCode)+'</div><div style="word-break:break-word"><b>'+T.certificates+':</b> '+esc(d.certificates)+'</div></div></div>');
+    var _hs=[];
+    if(_vis('hsCode') && _has(d.hsCode)) _hs.push('<div><b>'+T.hsCode+':</b> '+esc(d.hsCode)+'</div>');
+    if(_vis('certificates') && _has(d.certificates)) _hs.push('<div style="word-break:break-word"><b>'+T.certificates+':</b> '+esc(d.certificates)+'</div>');
+    h.push(_hs.length?('<div style="margin-top:auto;padding-top:8px">'+sec(T.hsCert)+'<div style="font-size:10.5px;line-height:1.65;color:#3d4f5d">'+_hs.join('')+'</div></div>'):'<div style="margin-top:auto"></div>');
     h.push('</div>');
     /* --- 中栏：规格 + 技术包装参数 --- */
     h.push('<div style="flex:1;box-sizing:border-box;border:1px solid #e5ebf0;border-radius:4px;padding:12px 13px;display:flex;flex-direction:column;background:#fff">');
-    h.push(sec(T.specFeat));
-    h.push('<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px 14px;margin-bottom:12px">'+feat.map(function(f){return '<div style="font-size:11.1px;line-height:1.4;padding:2px 0;word-break:break-word;color:#2c3e50"><span style="color:#2E75B6;font-weight:800;margin-right:5px">&#8226;</span>'+esc(f)+'</div>';}).join('')+'</div>');
-    h.push(sec(T.techData));
-    h.push('<div style="border:1px solid #e5ebf0;border-radius:3px;overflow:hidden">'+techRows.map(function(r,i){return row(r[0],r[1],i===techRows.length-1);}).join('')+'</div>');
-    h.push('<div style="margin-top:auto;padding-top:10px;display:flex;gap:10px;color:#5b6b78;font-size:10.3px"><div style="flex:1;background:#f8fafb;padding:6px 9px;border-radius:3px"><b>'+T.productClass+':</b> '+esc(d.productClass)+'</div><div style="flex:1;background:#f8fafb;padding:6px 9px;border-radius:3px"><b>'+T.brand+':</b> '+esc(brand)+'</div></div>');
+    if(_vis('features') && feat.length){
+      h.push(sec(T.specFeat));
+      h.push('<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px 14px;margin-bottom:12px">'+feat.map(function(f){return '<div style="font-size:11.1px;line-height:1.4;padding:2px 0;word-break:break-word;color:#2c3e50"><span style="color:#2E75B6;font-weight:800;margin-right:5px">&#8226;</span>'+esc(f)+'</div>';}).join('')+'</div>');
+    }
+    if(techRows.length){
+      h.push(sec(T.techData));
+      h.push('<div style="border:1px solid #e5ebf0;border-radius:3px;overflow:hidden">'+techRows.map(function(r,i){return row(r[0],r[1],i===techRows.length-1);}).join('')+'</div>');
+    }
+    h.push('<div style="margin-top:auto;padding-top:10px;display:flex;gap:10px;color:#5b6b78;font-size:10.3px">'+( (_vis('productClass') && _has(d.productClass))?'<div style="flex:1;background:#f8fafb;padding:6px 9px;border-radius:3px"><b>'+T.productClass+':</b> '+esc(d.productClass)+'</div>':'')+'<div style="flex:1;background:#f8fafb;padding:6px 9px;border-radius:3px"><b>'+T.brand+':</b> '+esc(brand)+'</div></div>');
     h.push('</div>');
     /* --- 右栏：商务条款 + 说明 + 工厂 + 签名 --- */
     h.push('<div style="width:27%;box-sizing:border-box;border:1px solid #e5ebf0;border-radius:4px;padding:12px 13px;display:flex;flex-direction:column;background:#fff">');
-    h.push(sec(T.comTerms));
-    h.push('<div style="border:1px solid #e5ebf0;border-radius:3px;overflow:hidden">'+comRows.map(function(r,i){return row(r[0],r[1],i===comRows.length-1);}).join('')+'</div>');
-    h.push('<div style="margin-top:9px;background:#f4f8fd;border-left:3px solid #2E75B6;padding:7px 10px;font-size:10.3px;line-height:1.5;color:#3d5060"><b style="color:#1F4E79">'+T.quoteNote+'</b><br>'+esc(d.quoteNote).replace(/\n/g,'<br>')+'</div>');
-    h.push('<div style="margin-top:9px;border:1px solid #f0d9a8;background:#fff8ec;padding:7px 10px"><div style="font-size:10.2px;font-weight:800;color:#9a5b00;letter-spacing:.6px;margin-bottom:2px">'+T.extraCost+'</div><div style="font-size:10.3px;color:#9a5b00;line-height:1.45">'+(extra.length?extra.map(function(x){return '<div>'+esc(x)+'</div>';}).join(''):'<span style="color:#93a2ad">'+T.none+'</span>')+'</div></div>');
-    h.push('<div style="margin-top:9px">'+sec(T.factory)+'<div style="font-size:10.2px;line-height:1.55;color:#3d4f5d"><div>'+T.factoryLabel+': <b>'+esc(d.factoryName)+'</b></div><div>'+T.sales+': '+esc(d.salesPerson)+' &nbsp;|&nbsp; '+T.workers+': '+esc(d.workers)+'</div><div>'+T.audit+': <b>'+esc(d.factoryAudit)+'</b></div><div>'+T.tel+': '+esc(tel)+' &nbsp;|&nbsp; '+esc(mail)+'</div></div></div>');
+    if(comRows.length){
+      h.push(sec(T.comTerms));
+      h.push('<div style="border:1px solid #e5ebf0;border-radius:3px;overflow:hidden">'+comRows.map(function(r,i){return row(r[0],r[1],i===comRows.length-1);}).join('')+'</div>');
+    }
+    if(_has(d.quoteNote)) h.push('<div style="margin-top:9px;background:#f4f8fd;border-left:3px solid #2E75B6;padding:7px 10px;font-size:10.3px;line-height:1.5;color:#3d5060"><b style="color:#1F4E79">'+T.quoteNote+'</b><br>'+esc(d.quoteNote).replace(/\n/g,'<br>')+'</div>');
+    if(extra.length) h.push('<div style="margin-top:9px;border:1px solid #f0d9a8;background:#fff8ec;padding:7px 10px"><div style="font-size:10.2px;font-weight:800;color:#9a5b00;letter-spacing:.6px;margin-bottom:2px">'+T.extraCost+'</div><div style="font-size:10.3px;color:#9a5b00;line-height:1.45">'+(extra.length?extra.map(function(x){return '<div>'+esc(x)+'</div>';}).join(''):'<span style="color:#93a2ad">'+T.none+'</span>')+'</div></div>');
+    if(_has(d.factoryName)||_has(d.salesPerson)||_has(d.workers)||_has(d.factoryAudit)||_has(tel)||_has(mail)) h.push('<div style="margin-top:9px">'+sec(T.factory)+'<div style="font-size:10.2px;line-height:1.55;color:#3d4f5d"><div>'+T.factoryLabel+': <b>'+esc(d.factoryName)+'</b></div><div>'+T.sales+': '+esc(d.salesPerson)+' &nbsp;|&nbsp; '+T.workers+': '+esc(d.workers)+'</div><div>'+T.audit+': <b>'+esc(d.factoryAudit)+'</b></div><div>'+T.tel+': '+esc(tel)+' &nbsp;|&nbsp; '+esc(mail)+'</div></div></div>');
     h.push('<div style="margin-top:auto;padding-top:10px"><div style="font-size:9.4px;letter-spacing:1.1px;color:#7b8b98;font-weight:700;margin-bottom:12px">'+T.confirmed+'</div><div style="display:flex"><div style="flex:1;border-bottom:1px solid #8a99a6;height:17px;margin-right:10px"></div><div style="width:78px;border-bottom:1px solid #8a99a6;height:17px"></div></div><div style="display:flex;font-size:9.4px;color:#8a99a6;margin-top:2px"><div style="flex:1;margin-right:10px">'+T.signature+'</div><div style="width:78px">'+T.dateLabel+'</div></div></div>');
     h.push('</div>');
     h.push('</div>');
@@ -6521,7 +6579,19 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         });
       }catch(e){}
     },180);
-    var info=document.getElementById('pvPageInfo'); if(info) info.textContent='PQS 单品报价单（横版 A4 · 蓝色系 · '+T.name+' · 单页）';
+    var info=document.getElementById('pvPageInfo');
+    if(info){
+      var _pa2=[]; try{ var _cc=cfg(); if(_cc&&Array.isArray(_cc.products)) _pa2=_cc.products.filter(Boolean); }catch(e){}
+      var _tot=Math.max(1,_pa2.length), _cur=Math.max(0,Math.min(Number(window.__hpPqsPage)||0,_tot-1));
+      if(_tot>1){
+        info.innerHTML='单品报价单（横版 A4 · '+T.name+' · 第 '+(_cur+1)+' / '+_tot+' 页）'
+          +' <button id="hpPqsPrev" style="margin-left:8px;padding:2px 8px;border:1px solid #2E75B6;background:#fff;color:#2E75B6;border-radius:4px;cursor:pointer">◀ 上一页</button>'
+          +' <button id="hpPqsNext" style="padding:2px 8px;border:1px solid #2E75B6;background:#fff;color:#2E75B6;border-radius:4px;cursor:pointer">下一页 ▶</button>';
+        var _b1=document.getElementById('hpPqsPrev'), _b2=document.getElementById('hpPqsNext');
+        if(_b1) _b1.onclick=function(){ window.__hpPqsPage=(_cur-1+_tot)%_tot; try{ window.hpPqsRender(); }catch(e){} };
+        if(_b2) _b2.onclick=function(){ window.__hpPqsPage=(_cur+1)%_tot; try{ window.hpPqsRender(); }catch(e){} };
+      }else info.textContent='单品报价单（横版 A4 · 蓝色系 · '+T.name+' · 单页）';
+    }
     /* 语言/内容变化时自动补翻译并重渲一次（签名机制保证不循环） */
     try{ pqsTransRefresh(); }catch(e){}
   };
@@ -6538,38 +6608,53 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     if(!T.ensurePdfLibs){ if(T.hpAlert) T.hpAlert('PDF 组件未就绪，请刷新页面后重试'); return; }
     var ok=false; try{ ok=await T.ensurePdfLibs(); }catch(e){}
     if(!ok){ if(T.hpAlert) T.hpAlert('⚠ 无法加载 PDF 组件，将打开系统打印（请选「另存为 PDF」）'); try{ window.print(); }catch(e){} return; }
+    var _prods=[];
+    try{ var _cc=cfg(); if(_cc&&Array.isArray(_cc.products)) _prods=_cc.products.filter(Boolean); }catch(e){}
+    var _pages=Math.max(1,_prods.length), _oldPage=0;
+    try{ _oldPage=Number(window.__hpPqsPage)||0; }catch(e){}
     var oldZoom=pv.style.zoom||'';
     try{
       pv.style.zoom='1';
-      try{ if(T.sanitizeExportImages) await Promise.race([ T.sanitizeExportImages(pv), new Promise(function(r){setTimeout(r,9000);}) ]); }catch(e){}
-      try{
-        var imgs=Array.prototype.slice.call(pv.querySelectorAll('img.cellimg')).filter(function(im){return im.getAttribute('src');});
-        await Promise.race([
-          Promise.all(imgs.map(function(im){ return new Promise(function(res){
-            if(!T.flattenWhite){ res(); return; }
-            var src=im.getAttribute('src');
-            T.flattenWhite(src,function(w){ if(w&&w!==src){ im.onload=res; im.onerror=res; im.src=w; setTimeout(res,2500); } else res(); });
-          }); })),
-          new Promise(function(r){setTimeout(r,8000);})
-        ]);
-      }catch(e){}
-      await new Promise(function(r){ setTimeout(r,200); });
-      var cont=pv.querySelector('.pv-cont')||pv;
-      var canvas=await T.safeHtml2canvas(cont);
-      if(!canvas) throw new Error('页面截图失败');
       var J=window.jspdf&&window.jspdf.jsPDF;
       if(!J) throw new Error('jsPDF 未加载');
       var pdf=new J({unit:'mm',format:'a4',orientation:'landscape'});
-      pdf.addImage(canvas.toDataURL('image/jpeg',0.93),'JPEG',0,0,297,210);
+      for(var _pi=0;_pi<_pages;_pi++){
+        window.__hpPqsPage=_pi;
+        try{ if(window.hpPqsTransRefresh) await window.hpPqsTransRefresh(); }catch(e){}
+        try{ await window.hpPqsRender(); }catch(e){}
+        await new Promise(function(r){ setTimeout(r,280); });
+        try{ if(T.sanitizeExportImages) await Promise.race([ T.sanitizeExportImages(pv), new Promise(function(r){setTimeout(r,9000);}) ]); }catch(e){}
+        try{
+          var imgs=Array.prototype.slice.call(pv.querySelectorAll('img.cellimg')).filter(function(im){return im.getAttribute('src');});
+          await Promise.race([
+            Promise.all(imgs.map(function(im){ return new Promise(function(res){
+              if(!T.flattenWhite){ res(); return; }
+              var src=im.getAttribute('src');
+              T.flattenWhite(src,function(w){ if(w&&w!==src){ im.onload=res; im.onerror=res; im.src=w; setTimeout(res,2500); } else res(); });
+            }); })),
+            new Promise(function(r){setTimeout(r,8000);})
+          ]);
+        }catch(e){}
+        await new Promise(function(r){ setTimeout(r,180); });
+        var cont=pv.querySelector('.pv-cont')||pv;
+        var canvas=await T.safeHtml2canvas(cont);
+        if(!canvas) throw new Error('第 '+(_pi+1)+' 页截图失败');
+        if(_pi>0) pdf.addPage();
+        pdf.addImage(canvas.toDataURL('image/jpeg',0.93),'JPEG',0,0,297,210);
+        try{ if(T.hpToast) T.hpToast('⏳ 已生成第 '+(_pi+1)+' / '+_pages+' 页…',3000); }catch(e){}
+      }
       var _m='quote'; try{ _m=String(merged().modelNumber||'quote'); }catch(e){}
-      var name='PQS_'+_m.replace(/[^\w\u4e00-\u9fa5-]+/g,'_').slice(0,30)+'-'+new Date().toISOString().slice(0,10)+'.pdf';
+      var name=_pages>1
+        ? 'PQS_'+_pages+'款产品_'+new Date().toISOString().slice(0,10)+'.pdf'
+        : 'PQS_'+_m.replace(/[^\w\u4e00-\u9fa5-]+/g,'_').slice(0,30)+'-'+new Date().toISOString().slice(0,10)+'.pdf';
       var blob=pdf.output('blob');
-      T.triggerDownload(blob,name,'PQS 横版 PDF 已生成');
-      if(T.syncBadge) T.syncBadge('PQS 横版 PDF 已生成 ✓');
+      T.triggerDownload(blob,name,'PQS 横版 PDF 已生成'+( _pages>1?('（共 '+_pages+' 页 / '+_pages+' 个产品）'):''));
+      if(T.syncBadge) T.syncBadge('PQS 横版 PDF 已生成 ✓'+( _pages>1?('（'+_pages+' 页）'):''));
     }catch(e){
       if(T.hpAlert) T.hpAlert('❌ PQS 横版导出失败：'+((e&&e.message)||e));
     }finally{
       pv.style.zoom=oldZoom;
+      window.__hpPqsPage=_oldPage;
       try{ await window.hpPqsRender(); }catch(e){}
     }
   };
