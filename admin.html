@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=174', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=175', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v174</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v175</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -147,7 +147,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
     <button data-t="db">🗄 资料库</button>
     <button data-t="features">🧩 功能开关</button>
     <button data-t="settings">⚙ 系统设置</button>
-    <button data-t="pqs">📄 单品报价单 PQS</button>
+    <button data-t="pqs">📄 单品报价单</button>
   </nav>
   <main id="mainBox"></main>
 </div>
@@ -1807,43 +1807,44 @@ var PQS_TPL_GROUPS=[
     ['brand','品牌 / 公司名（页脚 + 商务栏）'],
     ['companyCn','公司副标题 / 中文名（品牌头第二行）'],
     ['factoryName','品牌头主标题（留空 = 用品牌名）'],
-    ['addr','公司地址（页脚 Add）'],
-    ['web','网址（页脚 Web）'],
-    ['mobile','电话 / Mobile（页脚 + 工厂栏）'],
-    ['email','邮箱 / Email（页脚 + 工厂栏）'],
-    ['date','日期 DATE（留空 = 前端自动填当天）']
+    ['addr','公司地址（页脚显示）'],
+    ['web','网址（页脚显示）'],
+    ['mobile','电话 / 手机（页脚 + 工厂栏）'],
+    ['email','邮箱（页脚 + 工厂栏）'],
+    ['date','日期（留空 = 前端自动填当天）']
   ]},
   {t:'② 产品信息（可一键调取资料库，也可逐项修改）', f:[
     ['pqsModel','绑定 / 展示型号（决定前端自动取值用哪个产品）'],
-    ['modelNumber','型号 Model No.（前端显示）'],
-    ['productName','产品名称 Product Name'],
-    ['features','规格 / Features（每行一条）','ta'],
-    ['productClass','Product Class (Class I / II / III)'],
-    ['unitSizeWeight','单机尺寸与重量 Unit Size & Weight'],
-    ['colorBox','彩盒尺寸与重量 Color Box'],
-    ['exportCarton','外箱尺寸与重量 Export Carton'],
-    ['qtyCarton','每箱数量 Quantity / Carton'],
-    ['containerQty',"装柜量 20'/40'/40HQ"],
-    ['hsCode','HS Code'],
-    ['certificates','Certificates']
+    ['modelNumber','型号（前端显示）'],
+    ['productName','产品名称'],
+    ['features','规格参数（每行一条，自动去重）','ta'],
+    ['productClass','产品类别（一类 / 二类 / 三类）'],
+    ['unitSizeWeight','单机尺寸与重量'],
+    ['colorBox','彩盒尺寸与重量'],
+    ['exportCarton','外箱尺寸与重量'],
+    ['qtyCarton','每箱数量'],
+    ['containerQty','装柜量（20尺 / 40尺 / 40高柜）'],
+    ['hsCode','海关编码'],
+    ['certificates','认证证书']
   ]},
   {t:'③ 商务条款 / 报价说明', f:[
-    ['fobPort','FOB Port'],
-    ['moq','MOQ'],
-    ['deliveryDays','Delivery Days'],
-    ['paymentTerm','Payment Term'],
-    ['quoteNote','Quotation Note（报价说明）','ta'],
-    ['extraCost','Extra Cost（每行一条，红色显示）','ta']
+    ['fobPort','装运港（离岸价条款）'],
+    ['moq','最小起订量'],
+    ['deliveryDays','交货天数'],
+    ['paymentTerm','付款方式'],
+    ['quoteNote','报价说明','ta'],
+    ['extraCost','额外费用（每行一条，红色显示）','ta']
   ]},
   {t:'④ 工厂 / 合规 / 签名', f:[
-    ['salesPerson','Sales-Person Name'],
-    ['workers','Number of Factory Workers'],
-    ['factoryAudit','Factory Audit (BSCI or Other)']
+    ['salesPerson','业务负责人'],
+    ['workers','工厂员工人数'],
+    ['factoryAudit','工厂验厂（如验厂标准等）']
   ]},
   {t:'⑤ 固定标签文字覆盖（可选，留空 = 跟随「报价单语言」自动本地化）', f:[
-    ['labels','每行一条 KEY=文字，例如 title=单品报价单（预报价）。可用 KEY：title / date / model / product / modelNo / prodStatus / hsCert / hsCode / certificates / productPicture / specFeat / techData / productClass / unitSize / colorBox / exportCarton / qtyCarton / containerQty / comTerms / fobPort / moq / deliveryDays / paymentTerm / brand / quoteNote / extraCost / none / factory / factoryLabel / sales / workers / audit / tel / confirmed / signature / dateLabel / add / page / referenceOnly','ta']
+    ['labels','每行一条「关键词=文字」，例如「标题=单品报价单（预报价）」；点下方查看可用关键词','ta']
   ]}
 ];
+
 var PQS_PROD_KEYS=['pqsModel','modelNumber','productName','features','unitSizeWeight','colorBox','exportCarton','qtyCarton','containerQty','picture'];
 function pqsAllFields(){ var a=[]; PQS_TPL_GROUPS.forEach(function(g){ g.f.forEach(function(f){ a.push(f); }); }); return a; }
 function pqsSet(k,v){ var el=$("pq_"+k); if(el) el.value=(v==null?'':String(v)); }
@@ -1965,6 +1966,178 @@ function pqsReadImage(file,cb){
   };
   rd.readAsDataURL(file);
 }
+
+/* ================= v175：参数可隐藏 / 可删除 / 可自定义增加 ================= */
+var PQS_HIDEABLE=[
+  ['features','规格参数'],['productClass','产品类别'],['unitSizeWeight','单机尺寸与重量'],
+  ['colorBox','彩盒尺寸与重量'],['exportCarton','外箱尺寸与重量'],
+  ['qtyCarton','每箱数量'],['containerQty','装柜量'],
+  ['hsCode','海关编码'],['certificates','认证证书']
+];
+var PQS_PARAM_POS=[['tech','技术参数表'],['com','商务条款表']];
+function pqsCustomRow(c,i){
+  c=c||{}; var pos=c.pos||'tech';
+  return '<div class="bar pqCusRow" data-i="'+i+'" style="padding:6px 8px;border:1px solid #e3e9f0;border-radius:6px;margin-bottom:6px;flex-wrap:wrap;gap:8px">'
+    +'<input class="pqCusLabel" placeholder="参数名称，如：颜色" style="width:150px" value="'+esc(c.label||'')+'">'
+    +'<input class="pqCusValue" placeholder="参数值，如：白色 / 黑色" style="flex:1;min-width:170px" value="'+esc(c.value||'')+'">'
+    +'<select class="pqCusPos" style="width:130px">'+PQS_PARAM_POS.map(function(p){ return '<option value="'+p[0]+'"'+(pos===p[0]?' selected':'')+'>'+p[1]+'</option>'; }).join('')+'</select>'
+    +'<label class="hint" style="display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pqCusShow"'+((c.show===false)?'':' checked')+'> 显示</label>'
+    +'<button class="btn sm danger pqCusDel">🗑 删除</button></div>';
+}
+function pqsCfgHtml(p){
+  var hid=Array.isArray(p.hiddenFields)?p.hiddenFields:[];
+  var cus=Array.isArray(p.customParams)?p.customParams:[];
+  var h='<div class="subttl" style="font-size:12.5px;font-weight:700;color:var(--brand2);margin:14px 0 6px">⑦ 参数增减与显示设置（可自定义）</div>'
+    +'<div class="hint" style="margin:0 0 10px;line-height:1.8">取消勾选 = 该参数不再出现在单品报价单上（内容仍保留，随时可恢复）；自定义参数可自由增加、删除，名称与取值都会随「报价单语言」自动翻译。绑定型号、展示型号、产品名称是单据基础信息，始终显示。<br><b style="color:#1a7a3c">留空的版块、留空的参数行一律自动不展示</b>，无需手动关闭。</div>'
+    +'<label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:12.5px;color:#8a5a00"><input type="checkbox" id="pqNoFallback"'+((p.noFallback)?' checked':'')+'> 后台留空的字段不自动调取资料库（勾选后：留空 = 单子上不显示；不勾选则沿用资料库数据兜底）</label>'
+    +'<div class="subttl" style="font-size:12px;font-weight:700;color:var(--brand2);margin:8px 0 6px">固定参数显示</div>'
+    +'<div class="fgrid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:4px 12px">';
+  PQS_HIDEABLE.forEach(function(f){
+    h+='<label class="hint" style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" class="pqVis" data-k="'+f[0]+'"'+(hid.indexOf(f[0])<0?' checked':'')+'> '+esc(f[1])+'</label>';
+  });
+  h+='</div><div class="bar" style="margin:8px 0 12px"><button class="btn sm ghost" id="pqShowAll">↩ 全部显示</button></div>'
+    +'<div class="subttl" style="font-size:12px;font-weight:700;color:var(--brand2);margin:8px 0 6px">自定义参数</div>'
+    +'<div id="pqCustomBox">'+cus.map(function(c,i){ return pqsCustomRow(c,i); }).join('')+'</div>'
+    +'<div class="bar" style="margin-top:8px;flex-wrap:wrap"><button class="btn sm" id="pqAddParam">＋ 增加自定义参数</button><span class="hint">新增参数默认显示在「技术参数表」，可切换为「商务条款表」</span></div>';
+  return h;
+}
+function pqsBindCusRows(){
+  document.querySelectorAll('.pqCusRow').forEach(function(row){
+    var d=row.querySelector('.pqCusDel');
+    if(d) d.onclick=function(){ row.remove(); pqsHint('已删除该自定义参数，点保存后生效',true); };
+  });
+}
+function pqsBindCfg(){
+  var sa=$('pqShowAll');
+  if(sa) sa.onclick=function(){ document.querySelectorAll('.pqVis').forEach(function(x){ x.checked=true; }); pqsHint('已恢复显示全部固定参数，点保存后生效',true); };
+  var add=$('pqAddParam');
+  if(add) add.onclick=function(){
+    var box=$('pqCustomBox'); if(!box) return;
+    box.insertAdjacentHTML('beforeend',pqsCustomRow({},box.querySelectorAll('.pqCusRow').length));
+    pqsBindCusRows(); pqsHint('已增加一行自定义参数，填写后点保存',true);
+  };
+  pqsBindCusRows();
+}
+function pqsCollectCfg(){
+  var hidden=[];
+  document.querySelectorAll('.pqVis').forEach(function(x){ if(!x.checked) hidden.push(x.getAttribute('data-k')); });
+  var custom=[];
+  document.querySelectorAll('.pqCusRow').forEach(function(row){
+    var L=row.querySelector('.pqCusLabel'), V=row.querySelector('.pqCusValue'), P2=row.querySelector('.pqCusPos'), S=row.querySelector('.pqCusShow');
+    var lab=L?String(L.value||'').trim():'', val=V?String(V.value||'').trim():'';
+    if(lab||val) custom.push({label:lab,value:val,pos:(P2?P2.value:'tech'),show:!!(S&&S.checked)});
+  });
+  var nf=$('pqNoFallback');
+  return {hiddenFields:hidden,customParams:custom,noFallback:!!(nf&&nf.checked)};
+}
+function pqsKeyHelp(){
+  return '<details style="margin:2px 0 10px"><summary class="hint" style="cursor:pointer;font-size:12.5px;color:#1F4E79">查看可覆盖的标签关键词（高级，需原样填写）</summary>'
+    +'<div class="hint" style="padding:8px 10px;background:#f5f8fc;border-radius:6px;line-height:1.9;font-size:12px">title / date / model / product / modelNo / hsCert / hsCode / certificates / productPicture / specFeat / techData / productClass / unitSize / colorBox / exportCarton / qtyCarton / containerQty / comTerms / fobPort / moq / deliveryDays / paymentTerm / brand / quoteNote / extraCost / none / factory / factoryLabel / sales / workers / audit / tel / confirmed / signature / dateLabel / add / page / referenceOnly</div></details>';
+}
+/* ================= /v175 ================= */
+
+
+/* ================= v175b：多产品清单（每个产品导出一页，共用其余参数） ================= */
+var PQS_PROD_FORM_KEYS=['pqsModel','modelNumber','productName','features','productClass','unitSizeWeight','colorBox','exportCarton','qtyCarton','containerQty','hsCode','certificates','picture','picture2'];
+var _pqsProducts=[], _pqsProdIdx=0;
+function pqsReadProdForm(){
+  var o={};
+  PQS_PROD_FORM_KEYS.forEach(function(k){ var el=$('pq_'+k); if(el) o[k]=String(el.value||'').trim(); });
+  return o;
+}
+function pqsWriteProdForm(o){
+  o=o||{};
+  PQS_PROD_FORM_KEYS.forEach(function(k){ var el=$('pq_'+k); if(el) el.value=(o[k]!=null?String(o[k]):''); });
+  try{ pqsRenderPicPrev(); }catch(e){}
+}
+function pqsProdLabel(o,i){
+  o=o||{}; return (o.modelNumber||o.pqsModel||('产品 '+(i+1)))+(o.productName?(' — '+o.productName):'');
+}
+function pqsProdSaveCurrent(){
+  if(_pqsProducts.length) _pqsProducts[_pqsProdIdx]=Object.assign({},_pqsProducts[_pqsProdIdx]||{},pqsReadProdForm());
+}
+function pqsRenderProdList(){
+  var box=$('pqProdList'); if(!box) return;
+  var cnt=$('pqProdCnt'); if(cnt) cnt.textContent='共 '+_pqsProducts.length+' 个产品 → 导出 '+Math.max(1,_pqsProducts.length)+' 页';
+  if(!_pqsProducts.length){ box.innerHTML='<div class="hint">尚未添加产品；不添加则按上方「② 产品信息」生成单页报价单。</div>'; return; }
+  box.innerHTML=_pqsProducts.map(function(o,i){
+    var cur=i===_pqsProdIdx;
+    return '<div class="bar" style="padding:6px 8px;border:1px solid '+(cur?'#2E75B6':'#e3e9f0')+';border-radius:6px;margin-bottom:6px;flex-wrap:wrap;gap:8px;background:'+(cur?'#f2f7fc':'#fff')+'">'
+      +'<b style="min-width:24px;color:#1F4E79">第 '+(i+1)+' 页</b>'
+      +'<span style="flex:1;min-width:190px;font-size:12.5px">'+esc(pqsProdLabel(o,i))+'</span>'
+      +'<span class="hint">'+(o.picture?'有图片':'无图片')+'</span>'
+      +'<button class="btn sm ghost pqProdEdit" data-i="'+i+'">'+(cur?'正在编辑':'编辑此产品')+'</button>'
+      +'<button class="btn sm ghost pqProdUp" data-i="'+i+'"'+(i===0?' disabled':'')+'>↑ 上移</button>'
+      +'<button class="btn sm ghost pqProdDown" data-i="'+i+'"'+(i===_pqsProducts.length-1?' disabled':'')+'>↓ 下移</button>'
+      +'<button class="btn sm danger pqProdDel" data-i="'+i+'">🗑 删除</button></div>';
+  }).join('');
+  box.querySelectorAll('.pqProdEdit').forEach(function(b){ b.onclick=function(){ pqsProdSwitch(+b.getAttribute('data-i')); }; });
+  box.querySelectorAll('.pqProdUp').forEach(function(b){ b.onclick=function(){ pqsProdMove(+b.getAttribute('data-i'),-1); }; });
+  box.querySelectorAll('.pqProdDown').forEach(function(b){ b.onclick=function(){ pqsProdMove(+b.getAttribute('data-i'),1); }; });
+  box.querySelectorAll('.pqProdDel').forEach(function(b){ b.onclick=function(){ pqsProdDel(+b.getAttribute('data-i')); }; });
+}
+function pqsProdSwitch(i){
+  if(i<0||i>=_pqsProducts.length||i===_pqsProdIdx) return;
+  pqsProdSaveCurrent();
+  _pqsProdIdx=i; pqsWriteProdForm(_pqsProducts[i]); pqsRenderProdList();
+  pqsHint('正在编辑第 '+(i+1)+' 个产品（导出第 '+(i+1)+' 页）：'+pqsProdLabel(_pqsProducts[i],i),true);
+}
+function pqsProdAdd(m){
+  pqsProdSaveCurrent();
+  if(m){ try{ pqsPullModel(m); }catch(e){} }
+  else{
+    PQS_PROD_FORM_KEYS.forEach(function(k){ var el=$('pq_'+k); if(el) el.value=''; });
+    try{ pqsRenderPicPrev(); }catch(e){}
+  }
+  _pqsProducts.push(pqsReadProdForm());
+  _pqsProdIdx=_pqsProducts.length-1;
+  pqsRenderProdList();
+  pqsHint(m?('已添加 '+m+' 为第 '+_pqsProducts.length+' 个产品（导出第 '+_pqsProducts.length+' 页）'):('已添加空白产品，共 '+_pqsProducts.length+' 个，请在上方「② 产品信息」填写'),true);
+}
+function pqsProdDel(i){
+  if(i<0||i>=_pqsProducts.length) return;
+  var nm=pqsProdLabel(_pqsProducts[i],i);
+  _pqsProducts.splice(i,1);
+  if(_pqsProdIdx>=_pqsProducts.length) _pqsProdIdx=Math.max(0,_pqsProducts.length-1);
+  if(_pqsProducts.length) pqsWriteProdForm(_pqsProducts[_pqsProdIdx]);
+  pqsRenderProdList();
+  pqsHint('已删除「'+nm+'」，共 '+_pqsProducts.length+' 个产品，点保存后生效',true);
+}
+function pqsProdMove(i,dir){
+  var j=i+dir; if(j<0||j>=_pqsProducts.length) return;
+  var t=_pqsProducts[i]; _pqsProducts[i]=_pqsProducts[j]; _pqsProducts[j]=t;
+  if(_pqsProdIdx===i) _pqsProdIdx=j; else if(_pqsProdIdx===j) _pqsProdIdx=i;
+  pqsRenderProdList(); pqsHint('已调整顺序，导出的页序随之变化',true);
+}
+function pqsInitProducts(p){
+  _pqsProducts=Array.isArray(p.products)?p.products.filter(Boolean).map(function(o){ return Object.assign({},o); }):[];
+  _pqsProdIdx=0;
+  if(!_pqsProducts.length){
+    var o={}; PQS_PROD_FORM_KEYS.forEach(function(k){ if(p[k]!==undefined) o[k]=p[k]; });
+    if(o.modelNumber||o.productName||o.pqsModel||o.picture) _pqsProducts.push(o);
+  }
+  if(_pqsProducts.length) pqsWriteProdForm(_pqsProducts[0]);
+}
+function pqsProdHtml(){
+  var models=allDbModels().filter(function(m){ var o=DB.overrides[m]; return !(o&&o._hidden); }).sort();
+  var opts=models.map(function(m){ var pp=effProduct(m)||{}; return '<option value="'+esc(m)+'">'+esc(m)+(pp.category?' — '+esc(pp.category):'')+'</option>'; }).join('');
+  return '<div class="subttl" style="font-size:12.5px;font-weight:700;color:var(--brand2);margin:14px 0 6px">⑥ 产品清单（多个产品，每个产品导出一页；其余参数全部共用）</div>'
+    +'<div class="hint" style="margin:0 0 10px;line-height:1.8">点「添加该型号」可从资料库一键带入该产品的规格、尺寸重量、装柜量与图片；点「编辑此产品」后，上方「② 产品信息」与主副图即切换到该产品，改完直接保存即可。<b style="color:#1a7a3c">列表顺序 = 导出的 PDF 页序</b>，可用上移 / 下移调整。品牌、页眉页脚、商务条款、工厂信息、标签文字、参数显示设置对所有产品共用，<b>不用逐个修改</b>。</div>'
+    +'<div class="bar" style="padding:10px 12px;background:#f2f7fc;border:1px solid #d7e6f5;border-radius:6px;flex-wrap:wrap">'
+      +'<select id="pqProdPick" style="min-width:230px;max-width:320px"><option value="">选择资料库型号…</option>'+opts+'</select>'
+      +'<button class="btn sm" id="pqProdAddDb">＋ 添加该型号</button>'
+      +'<button class="btn sm ghost" id="pqProdAddBlank">＋ 添加空白产品</button>'
+      +'<span id="pqProdCnt" class="hint" style="flex:1;min-width:170px"></span>'
+    +'</div><div id="pqProdList" style="margin-top:10px"></div>';
+}
+function pqsBindProd(){
+  var a=$('pqProdAddDb');
+  if(a) a.onclick=function(){ var el=$('pqProdPick'), m=el?el.value:''; if(!m){ pqsHint('请先在下拉框选择资料库型号',false); return; } pqsProdAdd(m); };
+  var b=$('pqProdAddBlank'); if(b) b.onclick=function(){ pqsProdAdd(''); };
+  pqsRenderProdList();
+}
+/* ================= /v175b 后台 ================= */
+
 function renderPqs(M){
   var p=(SYS.settings&&SYS.settings.pqs)||{};
   /* v172：显示云端上次保存时间，点完保存后随时可核对「到底存进去没有」 */
@@ -1983,10 +2156,10 @@ function renderPqs(M){
   }
   var models=allDbModels().filter(function(m){ var o=DB.overrides[m]; return !(o&&o._hidden); }).sort();
   var opts=models.map(function(m){ var pp=effProduct(m)||{}; return '<option value="'+esc(m)+'">'+esc(m)+(pp.category?' — '+esc(pp.category):'')+'</option>'; }).join('');
-  var h='<div class="card"><h3>📄 单品报价单 PQS 模板（横版 A4 · 后台全量可编辑）</h3>'
+  var h='<div class="card"><h3>📄 单品报价单模板（横版 A4 · 后台全量可编辑）</h3>'
     +'<div class="hint" style="margin:6px 0 10px;line-height:1.7">本页维护横版「无具体数量」单品报价单上的<b>所有信息</b>：产品信息、品牌页脚、商务条款、工厂认证，连固定标签文字也能改。保存后员工端自动拉取，前端只读调用与下载。<br>'
     +'<b style="color:#1a7a3c">📥 调取资料库</b>：选型号点「调取该型号全部资料」，自动带入资料库里的规格、尺寸重量、装箱、装柜量与产品图片，带出后仍可逐项修改；<b style="color:#1a7a3c">🏢 从系统设置导入</b>可一键带出公司信息与默认报价条款。产品字段留空时，前端自动回退取报价清单 / 资料库数据（兼容旧模板）。<br>'
-    +'本页参数<b>只写入 settings.pqs 这一个云端键</b>：<b style="color:#1a7a3c">不会改动资料库、报价清单、已生成的报价单存档，也不会改动标准报价单</b>的卖方信息、商务条款、价格与任何产品参数；「调取资料库」只是把值填进本页输入框，保存前不写任何数据。语言仍跟随员工端「报价条款 → 报价单语言」，标签可用下方第 ⑤ 组自定义覆盖。</div>'
+    +'本页参数<b>只写入云端模板配置这一项</b>：<b style="color:#1a7a3c">不会改动资料库、报价清单、已生成的报价单存档，也不会改动标准报价单</b>的卖方信息、商务条款、价格与任何产品参数；「调取资料库」只是把值填进本页输入框，保存前不写任何数据。语言仍跟随员工端「报价条款 → 报价单语言」，标签可用下方第 ⑤ 组自定义覆盖。</div>'
     +'<div class="bar" style="padding:10px 12px;background:#f2f7fc;border:1px solid #d7e6f5;border-radius:6px;flex-wrap:wrap">'
       +'<b style="font-size:12.5px;color:#1F4E79">调取数据库资料</b>'
       +'<select id="pq_pick" style="min-width:230px;max-width:320px"><option value="">选择资料库型号…</option>'+opts+'</select>'
@@ -2001,13 +2174,19 @@ function renderPqs(M){
         return '<div class="subttl" style="font-size:12.5px;font-weight:700;color:var(--brand2);margin:14px 0 6px">'+esc(g.t)+'</div>'
           +'<div class="fgrid">'+g.f.map(fld).join('')+'</div>';
       }).join('')
-    +'<div class="subttl" style="font-size:12.5px;font-weight:700;color:var(--brand2);margin:14px 0 6px">⑥ 产品图片（主图 + 副图，可上传或随资料库一并调取）</div>'
+    +pqsKeyHelp()
+    +pqsProdHtml()
+    +pqsCfgHtml(p)
+    +'<div class="subttl" style="font-size:12.5px;font-weight:700;color:var(--brand2);margin:14px 0 6px">⑧ 产品图片（主图 + 副图，可上传或随资料库一并调取）</div>'
     +'<div class="bar"><label style="width:52px;flex:none">主图</label><input type="file" id="pq_pic1" accept="image/*" style="flex:0 1 260px"><button class="btn sm ghost" id="pq_pic1_clr">清除主图</button><span id="pq_picture_state" class="hint">'+(p.picture?'已设置主图':'未设置主图（前端自动取资料库图片）')+'</span></div>'
     +'<div class="bar"><label style="width:52px;flex:none">副图</label><input type="file" id="pq_pic2" accept="image/*" style="flex:0 1 260px"><button class="btn sm ghost" id="pq_pic2_clr">清除副图</button><span id="pq_picture2_state" class="hint">'+(p.picture2?'已设置副图':'未设置副图')+'</span></div>'
     +'<div id="pqsPicPrev" style="display:flex;gap:14px;align-items:flex-start;margin:8px 0;min-height:20px"></div>'
-    +'<div class="bar" style="margin-top:14px;flex-wrap:wrap;align-items:center;gap:10px"><button class="btn" id="pqSave">💾 保存 PQS 模板到云端</button><span id="pqSaveState" style="font-size:12.5px;font-weight:700;min-width:210px;color:#666">'+esc(_lastSave)+'</span><span class="hint">保存后员工端刷新（或 1 分钟内自动同步）即按本页内容显示整张 PQS 单</span></div></div>';
+    +'<div class="bar" style="margin-top:14px;flex-wrap:wrap;align-items:center;gap:10px"><button class="btn" id="pqSave">💾 保存模板到云端</button><span id="pqSaveState" style="font-size:12.5px;font-weight:700;min-width:210px;color:#666">'+esc(_lastSave)+'</span><span class="hint">保存后员工端刷新（或 1 分钟内自动同步）即按本页内容显示整张单品报价单</span></div></div>';
   M.innerHTML=h;
+  pqsInitProducts(p);
   pqsRenderPicPrev();
+  pqsBindCfg();
+  pqsBindProd();
   $("pq_pull").onclick=function(){ var m=$("pq_pick").value; if(!m){ pqsHint('请先在下拉框选择资料库型号',false); return; } pqsPullModel(m); };
   $("pq_pullSys").onclick=pqsPullSys;
   $("pq_clearProd").onclick=pqsClearProd;
@@ -2022,7 +2201,7 @@ function renderPqs(M){
       if(st){ st.textContent=txt; st.style.color=color||'#666'; }
       if(busy!==undefined){
         btn.disabled=!!busy;
-        btn.textContent=busy?'⏳ 正在保存…':'💾 保存 PQS 模板到云端';
+        btn.textContent=busy?'⏳ 正在保存…':'💾 保存模板到云端';
         btn.style.opacity=busy?'0.65':'1';
         btn.style.cursor=busy?'progress':'pointer';
       }
@@ -2032,10 +2211,16 @@ function renderPqs(M){
       try{ var b=$("sysBadge"); if(b) b.style.background=c||'#1F4E79'; }catch(_){}
     };
     setState('正在连接云端…','#1F4E79',true);
-    bag('⏳ 正在保存 PQS 模板到云端…','#1F4E79',8000);
+    bag('⏳ 正在保存模板到云端…','#1F4E79',8000);
     try{
       var o={picture:$("pq_picture")?$("pq_picture").value:'', picture2:$("pq_picture2")?$("pq_picture2").value:''};
       pqsAllFields().forEach(function(f){ var el=$("pq_"+f[0]); o[f[0]]=el?String(el.value||'').trim():''; });
+      /* v175：参数显示开关 + 自定义参数一并保存（仍只写云端模板配置这一项） */
+      var _cfg={}; try{ _cfg=pqsCollectCfg(); }catch(e){}
+      o.hiddenFields=_cfg.hiddenFields||[]; o.customParams=_cfg.customParams||[]; o.noFallback=!!_cfg.noFallback;
+      /* v175b：把当前编辑的产品写回清单，其余参数共用，导出时一产品一页 */
+      try{ pqsProdSaveCurrent(); }catch(e){}
+      o.products=_pqsProducts;
       /* v173：保存前规格再自动去重一次，保证云端模板里不留重复行 */
       var _sd=pqsDedupeSpec(o.features||'',false);
       if(_sd.dup){ o.features=_sd.text; var _fe=$("pq_features"); if(_fe) _fe.value=_sd.text; }
@@ -2056,7 +2241,7 @@ function renderPqs(M){
       await withTimeout(saveSys(),30000);
       var _t=new Date().toLocaleTimeString('zh-CN',{hour12:false});
       setState('✅ 保存成功 · '+_t+' 已写入云端','#1a7a3c',false);
-      bag('✅ PQS 模板已保存到云端（员工端刷新或 1 分钟内自动同步生效）','#2e7d32',6000);
+      bag('✅ 模板已保存到云端（员工端刷新或 1 分钟内自动同步生效）','#2e7d32',6000);
     }catch(e){
       var m=String((e&&e.message)||e||'未知错误');
       var _to=/超时|timeout/i.test(m);
@@ -2126,7 +2311,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 174, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 175, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
