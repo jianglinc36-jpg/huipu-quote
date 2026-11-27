@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v170</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v171</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5659,9 +5659,15 @@ function pv90ApplyFeatures(f){
 var pv90Boot=Date.now(), pv90Reloaded=false;
 function pv90ApplySettings(s){
   if(!s||typeof s!=="object") return false;
-  var sig=JSON.stringify(s);
+  /* v171：变更签名排除 settings.pqs。PQS 是独立模板，改它不应触发 seller/terms/cfg
+     重新下发与强制刷新——否则会把员工端已改过的公司信息、付款条款、定价系数覆盖回
+     后台值，进而改动既有标准报价单（违反「PQS 参数不影响之前报价单」的约束）。 */
+  var sigObj={}; Object.keys(s).forEach(function(k){ if(k!=='pqs') sigObj[k]=s[k]; });
+  var sig=JSON.stringify(sigObj);
   var applied=null; try{ applied=localStorage.getItem("huipu_sys_applied_v1"); }catch(e){}
   if(applied===sig) return false;
+  /* 平滑迁移：旧签名是含 pqs 的完整 settings；若除 pqs 外内容一致，直接升级不误触发一次下发/刷新 */
+  if(applied){ try{ var _old=JSON.parse(applied); if(_old&&typeof _old==='object'){ var _o={}; Object.keys(_old).forEach(function(k){ if(k!=='pqs') _o[k]=_old[k]; }); if(JSON.stringify(_o)===sig){ try{ localStorage.setItem("huipu_sys_applied_v1",sig); }catch(e){} return false; } } }catch(e){} }
   try{
     if(s.seller){ var cur=loadJSON(SELLER_KEY,{})||{}; ["en","cn","addr","contact","tel","email","web"].forEach(function(k){ if(s.seller[k]!=null&&s.seller[k]!=="") cur[k]=s.seller[k]; }); saveJSON(SELLER_KEY,cur); }
     if(s.terms){ var t=loadJSON("huipu_terms_v1",{})||{}; ["term","payment","delivery","validity","origin","packing","by","deliveryNote","validityNote","priceNote","moqText"].forEach(function(k){ if(s.terms[k]!=null&&s.terms[k]!=="") t[k]=s.terms[k]; }); saveJSON("huipu_terms_v1",t); }
@@ -5686,9 +5692,14 @@ async function pv90SyncSys(){
     const sys=st["huipu_sys_v1"]||{};
     TPL_SET=sys.settings||null; // v136：后台模板（下拉候选 + 参数行重建的唯一来源）
     /* v164：PQS 模板只由后台维护，前端只读 */
+    /* v171：内容变化时仅重渲 PQS 预览，绝不 reload 页面（避免打断员工端正在编辑的报价单） */
     try{
-      if(sys.settings && sys.settings.pqs) localStorage.setItem('huipu_pqs_v1', JSON.stringify(sys.settings.pqs));
-      else localStorage.removeItem('huipu_pqs_v1');
+      var _pq=sys.settings && sys.settings.pqs ? JSON.stringify(sys.settings.pqs) : '';
+      var _pqOld=null; try{ _pqOld=localStorage.getItem('huipu_pqs_v1'); }catch(e){}
+      if(_pq) localStorage.setItem('huipu_pqs_v1',_pq); else localStorage.removeItem('huipu_pqs_v1');
+      if(_pq!==(_pqOld||'') && typeof window.hpPqsActive==='function' && window.hpPqsActive()){
+        try{ if(typeof window.hpPqsRender==='function') window.hpPqsRender(); }catch(e){}
+      }
     }catch(e){}
     try{ if(TPL_SET&&Array.isArray(TPL_SET.dbTemplates)) saveJSON("huipu_tpl_cache_v1",TPL_SET); }catch(e){}
     pv90ApplyFeatures(sys.features||{});
@@ -5759,7 +5770,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=170', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=171', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5957,7 +5968,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 170;
+  var APP_VER = 171;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
