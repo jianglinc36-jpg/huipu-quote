@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=178', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=179', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v178</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v179</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -1817,7 +1817,9 @@ var PQS_TPL_GROUPS=[
     ['pqsModel','绑定 / 展示型号（决定前端自动取值用哪个产品）'],
     ['modelNumber','型号（前端显示）'],
     ['productName','产品名称'],
-    ['price','价格（显示在「报价说明」上方，如 ¥ 45 / USD 12.5）'],
+    ['priceCny','价格 · 人民币 ¥（员工端报价币种切到 CNY 时显示）'],
+    ['priceUsd','价格 · 美金 USD（员工端报价币种切到 USD 时显示）'],
+    ['price','价格 · 自定义文本（旧版兼容；上面两个都没填时才显示）'],
     ['features','规格参数（每行一条，自动去重）','ta'],
     ['productClass','产品类别（一类 / 二类 / 三类）'],
     ['unitSizeWeight','单机尺寸与重量'],
@@ -1826,7 +1828,7 @@ var PQS_TPL_GROUPS=[
     ['netWeight','净重'],
     ['grossWeight','毛重'],
     ['qtyCarton','每箱数量'],
-    ['containerQty','装柜量（20尺 / 40尺 / 40高柜）'],
+    ['containerQty','装柜数量 · 个 / pcs（前端按外盒尺寸 + 每箱数量自动重算，此值仅作兜底）'],
     ['hsCode','海关编码'],
     ['certificates','认证证书']
   ]},
@@ -1848,7 +1850,7 @@ var PQS_TPL_GROUPS=[
   ]}
 ];
 
-var PQS_PROD_KEYS=['pqsModel','modelNumber','productName','features','unitSizeWeight','colorBox','exportCarton','netWeight','grossWeight','qtyCarton','containerQty','picture','price'];
+var PQS_PROD_KEYS=['pqsModel','modelNumber','productName','features','unitSizeWeight','colorBox','exportCarton','netWeight','grossWeight','qtyCarton','containerQty','picture','price','priceCny','priceUsd'];
 function pqsAllFields(){ var a=[]; PQS_TPL_GROUPS.forEach(function(g){ g.f.forEach(function(f){ a.push(f); }); }); return a; }
 function pqsSet(k,v){ var el=$("pq_"+k); if(el) el.value=(v==null?'':String(v)); }
 function pqsHint(s,ok){ var el=$("pqsPullHint"); if(el){ el.textContent=s; el.style.color=ok?'#1a7a3c':'#9a5b00'; } }
@@ -1862,9 +1864,11 @@ function pqsContainerText(p){
     if(a.some(function(x){ return x>200; })) a=a.map(function(x){ return x/10; });
     var vol=a[0]*a[1]*a[2]/1e6, pcs=+pm[1], gw=parseFloat(p.gross_weight)||0;
     if(vol<=0||vol>10||!pcs) return '';
+    /* v179：n 是可装「外箱数」，旧版误标成 pcs（个）；现乘以每箱数量，
+       输出真实产品个数，单位统一为 pcs（个），与前端实时核算一致。 */
     return [['20GP',28,28000],['40GP',58,26000],['40HQ',68,26000]].map(function(s){
       var n=Math.min(Math.floor(s[1]/vol), gw>0?Math.floor(s[2]/gw):Infinity);
-      return n>0? s[0]+' '+n.toLocaleString('en-US')+' pcs' : '';
+      return n>0? s[0]+' '+(n*pcs).toLocaleString('en-US')+' pcs' : '';
     }).filter(Boolean).join(' / ');
   }catch(e){ return ''; }
 }
@@ -1904,6 +1908,24 @@ function pqsDbPrice(p){
   if(u!=null&&String(u).trim()!=='') return 'USD '+String(u).trim();
   return '';
 }
+/* v179：一次取回人民币价 / 美金价两套，供 PQS 价格随报价币种切换；
+   缺其中一套时按系统设置里的汇率自动折算补齐。 */
+function pqsDbPrices(p){
+  var o={cny:'',usd:'',any:''}; if(!p) return o;
+  var r=p.price_rmb, u=p.price_usd_exw, rate=7.1;
+  try{
+    var c=(SYS.settings&&SYS.settings.huipu_cfg_v1)||(SYS.settings&&SYS.settings.cfg)||{};
+    if(c&&c.rate) rate=+c.rate||7.1;
+  }catch(e){}
+  var rn=(r!=null&&String(r).trim()!=='')?parseFloat(String(r).trim()):NaN;
+  var un=(u!=null&&String(u).trim()!=='')?parseFloat(String(u).trim()):NaN;
+  if(!isNaN(rn)) o.cny='¥ '+String(r).trim();
+  else if(!isNaN(un)) o.cny='¥ '+(un*rate).toFixed(2);
+  if(!isNaN(un)) o.usd='USD '+String(u).trim();
+  else if(!isNaN(rn)) o.usd='USD '+(rn/rate).toFixed(2);
+  o.any=o.cny||o.usd||'';
+  return o;
+}
 /* v178：只导入价格，不覆盖其它已改好的参数 */
 function pqsPullPrice(){
   var m=$('pq_src')?String($('pq_src').value||'').trim():'';
@@ -1911,10 +1933,10 @@ function pqsPullPrice(){
   if(!m){ pqsHint('请先选择型号，或在「绑定 / 展示型号」里填一个型号',false); return; }
   var p=null; try{ p=effProduct(m); }catch(e){}
   if(!p||p._hidden){ pqsHint('❌ 资料库里找不到型号「'+m+'」',false); return; }
-  var v=pqsDbPrice(p);
-  if(!v){ pqsHint('⚠ 「'+m+'」在资料库里没有填价格（人民币价 / USD EXW），请直接在「价格」输入框填写',false); return; }
-  pqsSet('price',v);
-  pqsHint('✓ 已导入「'+m+'」的资料库价格 '+v+'，可继续修改后保存',true);
+  var q=pqsDbPrices(p);
+  if(!q.any){ pqsHint('⚠ 「'+m+'」在资料库里没有填价格（人民币价 / USD EXW），请直接在价格输入框填写',false); return; }
+  pqsSet('priceCny',q.cny); pqsSet('priceUsd',q.usd); pqsSet('price',q.any);
+  pqsHint('✓ 已导入「'+m+'」的资料库价格：人民币 '+q.cny+' / 美金 '+q.usd+'；员工端切换报价币种即自动显示对应价格',true);
 }
 /* 从资料库（产品库）调取某型号的全部信息填入本页表单 */
 function pqsPullModel(m){
@@ -1933,7 +1955,8 @@ function pqsPullModel(m){
   pqsSet('grossWeight',p.gross_weight? p.gross_weight+' kg':'');
   pqsSet('qtyCarton',p.packing||'');
   pqsSet('containerQty',pqsContainerText(p));
-  pqsSet('price',pqsDbPrice(p));
+  var _pq=pqsDbPrices(p);
+  pqsSet('priceCny',_pq.cny); pqsSet('priceUsd',_pq.usd); pqsSet('price',_pq.any);
   pqsSet('picture',p.img||'');
   var hid=$("pq_picture"); if(hid) hid.value=p.img||'';
   pqsSetPic('picture',p.img||'',true);
@@ -2029,7 +2052,7 @@ function pqsDbPull(m){
   try{ pqsSetPic('picture',String(s.picture||''),true); }catch(e){}
   try{ pqsSetPic('picture2',String(s.picture2||''),true); }catch(e){}
   try{ pqsRenderPicPrev(); }catch(e){}
-  pqsHint('✓ 已调取「'+m+'」在独立资料库里保留的版本（尺寸 / 净重 / 毛重 / 装箱 / 装柜量 / 图片）',true);
+  pqsHint('✓ 已调取「'+m+'」在独立资料库里保留的版本（尺寸 / 净重 / 毛重 / 装箱 / 装柜量 / 双币种价格 / 图片）',true);
 }
 function pqsDbAdd(m){
   m=String(m||'').trim(); if(!m) return;
@@ -2085,7 +2108,7 @@ var PQS_HIDEABLE=[
   ['price','价格'],['features','规格参数'],['productClass','产品类别'],['unitSizeWeight','单机尺寸与重量'],
   ['colorBox','内盒尺寸'],['exportCarton','外盒尺寸'],
   ['netWeight','净重'],['grossWeight','毛重'],
-  ['qtyCarton','每箱数量'],['containerQty','装柜量'],
+  ['qtyCarton','每箱数量'],['containerQty','装柜数量（个 / pcs）'],
   ['hsCode','海关编码'],['certificates','认证证书']
 ];
 var PQS_PARAM_POS=[['tech','技术参数表'],['com','商务条款表']];
@@ -2105,6 +2128,7 @@ function pqsCfgHtml(p){
     +'<div class="hint" style="margin:0 0 10px;line-height:1.8">取消勾选 = 该参数不再出现在单品报价单上（内容仍保留，随时可恢复）；自定义参数可自由增加、删除，名称与取值都会随「报价单语言」自动翻译。绑定型号、展示型号、产品名称是单据基础信息，始终显示。<br><b style="color:#1a7a3c">留空的版块、留空的参数行一律自动不展示</b>，无需手动关闭。</div>'
     +'<label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:12.5px;color:#8a5a00"><input type="checkbox" id="pqNoFallback"'+((p.noFallback)?' checked':'')+'> 后台留空的字段不自动调取资料库（勾选后：留空 = 单子上不显示；不勾选则沿用资料库数据兜底）</label>'
     +'<label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:12.5px;color:#1a7a3c"><input type="checkbox" id="pqPlugShow"'+((p.plugShow===false)?'':' checked')+'> 在产品图片下方显示「常用插头」示意图（图片已内置，所有款式共用，无需上传；取消勾选即整块隐藏）</label>'
+    +'<div class="hint" style="margin:0 0 10px;line-height:1.8;color:#1F4E79">v179：装柜数量统一按「个 / pcs」实时核算（外盒尺寸 × 每箱数量，并受单箱毛重限制）；价格跟随员工端「报价币种」自动在人民币价 / 美金价之间切换。</div>'
     +'<div class="subttl" style="font-size:12px;font-weight:700;color:var(--brand2);margin:8px 0 6px">固定参数显示</div>'
     +'<div class="fgrid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:4px 12px">';
   PQS_HIDEABLE.forEach(function(f){
@@ -2153,7 +2177,7 @@ function pqsKeyHelp(){
 
 
 /* ================= v175b：多产品清单（每个产品导出一页，共用其余参数） ================= */
-var PQS_PROD_FORM_KEYS=['pqsModel','modelNumber','productName','features','productClass','unitSizeWeight','colorBox','exportCarton','netWeight','grossWeight','qtyCarton','containerQty','hsCode','certificates','picture','picture2','price'];
+var PQS_PROD_FORM_KEYS=['pqsModel','modelNumber','productName','features','productClass','unitSizeWeight','colorBox','exportCarton','netWeight','grossWeight','qtyCarton','containerQty','hsCode','certificates','picture','picture2','price','priceCny','priceUsd'];
 var _pqsProducts=[], _pqsProdIdx=0;
 function pqsReadProdForm(){
   var o={};
@@ -2442,7 +2466,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 178, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 179, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
