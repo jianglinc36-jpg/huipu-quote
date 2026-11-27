@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v169</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v170</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5397,10 +5397,10 @@ var PV_INNER_W=PV_PAGE_W-PV_PAD_X*2, PV_INNER_H=PV_PAGE_H-PV_PAD_Y*2, PV_TOP_GAP
     '#preview table.q th:nth-child(8),#preview table.q td:nth-child(8){width:10%}',
     '#preview table.q th:nth-child(9),#preview table.q td:nth-child(9){width:11%}',
     '/* 产品图固定高度：分页测量稳定，排版不跳动（紧凑） */',
-    '#preview img.cellimg{height:46px !important;width:auto !important;max-width:100% !important;object-fit:contain;margin:0 auto;display:block;background:#fff}',
+    '#preview img.cellimg:not(.pqsimg){height:46px !important;width:auto !important;max-width:100% !important;object-fit:contain;margin:0 auto;display:block;background:#fff}',
     '/* 测量用的隐藏容器（与真实页面同宽同样式） */',
     '.pv-meas{position:absolute;left:-99999px;top:0;visibility:hidden;background:#fff;font-size:12.5px;color:#1c2733}',
-    '.pv-meas img.cellimg{height:46px !important;width:auto !important;max-width:100% !important;object-fit:contain;display:block;margin:0 auto;background:#fff}',
+    '.pv-meas img.cellimg:not(.pqsimg){height:46px !important;width:auto !important;max-width:100% !important;object-fit:contain;display:block;margin:0 auto;background:#fff}',
     '/* 紧凑排版：缩小行距/内边距/表头，让多个产品连贯落在同一页 */',
     '#preview table.q th,#preview table.q td{padding:2px 5px !important;font-size:10.5px !important;line-height:1.2}',
     '.pv-meas table.q th,.pv-meas table.q td{padding:2px 5px !important;font-size:10.5px !important;line-height:1.2}',
@@ -5759,7 +5759,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=169', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=170', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5957,7 +5957,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 169;
+  var APP_VER = 170;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
@@ -6304,6 +6304,12 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     PQS_PROD_FALLBACK.forEach(function(k){
       if(String(d[k]==null?'':d[k]).trim()==='') d[k]=prod[k];
     });
+    /* v170：后台/缓存里若存了无效图片串（非空但加载不出来），清空并回退资料库图，避免出现破图 */
+    ['picture','picture2'].forEach(function(k){
+      var v=String(d[k]==null?'':d[k]).trim();
+      if(v && !/^(data:image\/|https?:\/\/|blob:|\/|\.\/)/i.test(v)) d[k]='';
+      if(k==='picture' && !String(d[k]==null?'':d[k]).trim()) d[k]=prod.picture||'';
+    });
     if(!String(d.date||'').trim()) d.date=today();
     return d;
   }
@@ -6330,15 +6336,17 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         +'<div style="flex:1;padding:3px 9px;font-size:11px;font-weight:600;color:#1c2733;word-break:break-word">'+esc(v)+'</div></div>';
     }
     /* 产品图：横版独立大图区 */
-    /* v169：图片铺满整个图框（cover 放大裁掉白边，产品主体最大化） */
-    var picHtml='', _imgFill='object-fit:cover;object-position:center;display:block';
+    /* v170：真正铺满整个图框。根因是全局 #preview img.cellimg{height:46px !important}
+       把 PQS 大图压成 46px 小图；现用独立类 pqsimg 排除该规则，并对全部尺寸属性
+       加 !important 双保险；仍保留 .cellimg 以便导出链路（同源化/白底融合）照常命中。 */
+    var picHtml='', _imgFill='height:100% !important;max-width:none !important;object-fit:cover !important;object-position:center;display:block !important;margin:0 !important;background:transparent !important';
     if(pic&&pic2){
       picHtml='<div style="display:flex;height:100%;gap:4px">'
-        +'<img class="cellimg" src="'+esc(pic)+'" style="flex:1 1 0;min-width:0;height:100%;'+_imgFill+'">'
-        +'<img class="cellimg" src="'+esc(pic2)+'" style="flex:1 1 0;min-width:0;height:100%;'+_imgFill+'">'
+        +'<img class="cellimg pqsimg" src="'+esc(pic)+'" style="flex:1 1 0;min-width:0;width:auto !important;'+_imgFill+'">'
+        +'<img class="cellimg pqsimg" src="'+esc(pic2)+'" style="flex:1 1 0;min-width:0;width:auto !important;'+_imgFill+'">'
         +'</div>';
     }else if(pic||pic2){
-      picHtml='<img class="cellimg" src="'+esc(pic||pic2)+'" style="width:100%;height:100%;'+_imgFill+'">';
+      picHtml='<img class="cellimg pqsimg" src="'+esc(pic||pic2)+'" style="width:100% !important;'+_imgFill+'">';
     }else{
       picHtml='<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#a9b6c2;font-size:12px;letter-spacing:1.6px"><div style="font-size:48px;line-height:1;margin-bottom:10px;color:#cfd9e2">&#9635;</div>'+T.productPicture+'</div>';
     }
@@ -6387,6 +6395,22 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     h.push('</div>');
     h.push('</div>');
     pv.innerHTML=h.join('');
+    /* v170：图片加载失败时整框显示占位，不再留下破图小图标 */
+    setTimeout(function(){
+      try{
+        var _root=document.getElementById('preview'); if(!_root) return;
+        Array.prototype.slice.call(_root.querySelectorAll('img.pqsimg')).forEach(function(im){
+          if(im.complete && im.naturalWidth===0){
+            im.style.display='none';
+            var box=im.parentNode; if(!box||box.querySelector('.pqsimg-ph')) return;
+            var d=document.createElement('div'); d.className='pqsimg-ph';
+            d.style.cssText='width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#a9b6c2;font-size:12px;letter-spacing:1.6px;background:#fafcfd';
+            d.innerHTML='<div style="font-size:48px;line-height:1;margin-bottom:10px;color:#cfd9e2">&#9635;</div>'+T.productPicture;
+            box.appendChild(d);
+          }
+        });
+      }catch(e){}
+    },180);
     var info=document.getElementById('pvPageInfo'); if(info) info.textContent='PQS 单品报价单（横版 A4 · 蓝色系 · '+T.name+' · 单页）';
     /* 语言/内容变化时自动补翻译并重渲一次（签名机制保证不循环） */
     try{ pqsTransRefresh(); }catch(e){}
