@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=163', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=164', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -147,6 +147,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
     <button data-t="db">🗄 资料库</button>
     <button data-t="features">🧩 功能开关</button>
     <button data-t="settings">⚙ 系统设置</button>
+    <button data-t="pqs">📄 单品报价单 PQS</button>
   </nav>
   <main id="mainBox"></main>
 </div>
@@ -503,6 +504,7 @@ function showTab(t){
     else if(t==="db") renderDb(M);
     else if(t==="features") renderFeatures(M);
     else if(t==="settings") renderSettings(M);
+    else if(t==="pqs") renderPqs(M);
   }catch(e){ M.innerHTML='<div class="err">渲染出错：'+esc(e.message||e)+'</div>'; }
 }
 function openModal(html){ $("modalBox").innerHTML=html; $("modal").style.display="block"; }
@@ -1667,6 +1669,74 @@ function renderFeatures(M){
 var SET_SELLER=[["en","公司名（英文）"],["cn","公司名（中文）"],["addr","地址"],["contact","联系人"],["tel","电话"],["email","邮箱"],["web","网址"]];
 var SET_TERMS=[["by","经办人"],["term","贸易条款"],["payment","付款方式"],["delivery","交期"],["deliveryNote","交期说明(模板)"],["validity","有效期"],["validityNote","有效期说明(模板)"],["origin","产地"],["moqText","最小起订量"],["packing","包装"],["priceNote","价格说明"]];
 var SET_CFG=[["currency","币种（USD/CNY）"],["rate","汇率（RMB→币种）"],["markup","加价率 %"],["fob","FOB 运费/件"],["dec","小数位"]];
+
+/* ---------- v164：单品报价单 PQS 模板（后台唯一可编辑入口；前端只读） ---------- */
+var PQS_TPL_FIELDS=[
+  ['brand','品牌 / 公司名（页脚显示）'],
+  ['productClass','Product Class (Class I / II / III)'],
+  ['hsCode','HS Code'],
+  ['certificates','Certificates'],
+  ['factoryName','Factory Name'],
+  ['salesPerson','Sales-Person Name'],
+  ['mobile','Mobile Number'],
+  ['email','Email Address'],
+  ['factoryAudit','Factory Audit (BSCI or Other)'],
+  ['workers','Number of Factory Workers'],
+  ['quoteNote','Quotation Note（报价说明）','ta'],
+  ['extraCost','Extra Cost（每行一条，红色显示）','ta'],
+  ['fobPort','FOB Port'],
+  ['moq','MOQ'],
+  ['deliveryDays','Delivery Days'],
+  ['paymentTerm','Payment Term'],
+  ['status','Product Status','sel'],
+  ['pqsModel','绑定型号（留空 = 前端取报价清单第一个产品）']
+];
+function renderPqs(M){
+  var p=(SYS.settings&&SYS.settings.pqs)||{};
+  function fld(f){
+    var k=f[0],lab=f[1],typ=f[2]||''; var v=p[k]==null?'':p[k];
+    if(typ==='ta') return '<label>'+esc(lab)+'<textarea id="pq_'+k+'" rows="3">'+esc(v)+'</textarea></label>';
+    if(typ==='sel') return '<label>'+esc(lab)+'<select id="pq_'+k+'">'+['Ready For Production','Under Tooling','Design Stage'].map(function(x){ return '<option'+(x===v?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select></label>';
+    return '<label>'+esc(lab)+'<input id="pq_'+k+'" value="'+esc(v)+'"></label>';
+  }
+  var h='<div class="card"><h3>📄 单品报价单 PQS 模板（员工端只读）</h3>'
+    +'<div class="hint" style="margin:6px 0 10px;line-height:1.7">这里维护「无具体数量」单品报价单的商务条款、工厂与认证信息。保存后员工端打开报价软件自动拉取，<b>前端只能调用与下载，不能修改</b>。产品名称、规格 Features、尺寸重量、装柜量、产品图片来自资料库与报价清单，不在此处设置。</div>'
+    +'<div class="fgrid">'+PQS_TPL_FIELDS.map(fld).join('')+'</div>'
+    +'<div class="subttl" style="font-size:12.5px;font-weight:700;color:var(--brand2);margin:14px 0 6px">副图（可选，与主产品图并排显示）</div>'
+    +'<div class="bar"><input type="file" id="pq_pic2" accept="image/*"><button class="btn ghost" id="pq_pic2_clr">清除副图</button><span id="pq_pic2_state" class="hint">'+(p.picture2?'已设置副图':'未设置副图')+'</span></div>'
+    +'<div class="bar" style="margin-top:14px"><button class="btn" id="pqSave">💾 保存 PQS 模板到云端</button></div></div>';
+  M.innerHTML=h;
+  $("pq_pic2").onchange=function(){
+    var f=this.files&&this.files[0]; if(!f) return;
+    var rd=new FileReader();
+    rd.onload=function(){
+      var im=new Image();
+      im.onload=function(){
+        try{
+          var sc=Math.min(1,600/Math.max(im.width,im.height));
+          var c=document.createElement("canvas");
+          c.width=Math.max(1,Math.round(im.width*sc)); c.height=Math.max(1,Math.round(im.height*sc));
+          var cx=c.getContext("2d"); cx.fillStyle="#fff"; cx.fillRect(0,0,c.width,c.height); cx.drawImage(im,0,0,c.width,c.height);
+          var q=0.8,u; do{ u=c.toDataURL("image/jpeg",q); q-=0.12; }while(u.length>160000&&q>0.3);
+          p.picture2=u; $("pq_pic2_state").textContent="副图已就绪（点保存后生效）";
+        }catch(e){ alert("图片处理失败："+(e.message||e)); }
+      };
+      im.onerror=function(){ alert("图片解码失败，请换 JPG / PNG 格式"); };
+      im.src=String(rd.result||'');
+    };
+    rd.readAsDataURL(f); this.value='';
+  };
+  $("pq_pic2_clr").onclick=function(){ p.picture2=''; $("pq_pic2_state").textContent='已清除（点保存后生效）'; };
+  $("pqSave").onclick=async function(){
+    var o={picture2:p.picture2||''};
+    PQS_TPL_FIELDS.forEach(function(f){ var el=$("pq_"+f[0]); o[f[0]]=el?String(el.value||'').trim():''; });
+    SYS.settings=SYS.settings||{};
+    SYS.settings.pqs=o;
+    try{ await saveSys(); badge("PQS 模板已保存到云端 ✓（员工端刷新或 1 分钟内自动同步生效）",true); }
+    catch(e){ alert("保存失败："+(e.message||e)); }
+  };
+}
+
 function renderSettings(M){
   var s=SYS.settings||{};
   function inp(id,label,v){ return '<label>'+esc(label)+'<input id="st_'+id+'" value="'+esc(v==null?"":v)+'"></label>'; }
@@ -1686,7 +1756,7 @@ function renderSettings(M){
     SET_SELLER.forEach(function(f){ var v=g(f[0]); if(v!=="") seller[f[0]]=v; });
     SET_TERMS.forEach(function(f){ var v=g(f[0]); if(v!=="") terms[f[0]]=v; });
     SET_CFG.forEach(function(f){ var v=g(f[0]); if(v!=="") cfg[f[0]]=v; });
-    SYS.settings={seller:seller,terms:terms,cfg:cfg};
+    SYS.settings=Object.assign({},SYS.settings||{},{seller:seller,terms:terms,cfg:cfg});
     try{ await saveSys(); badge("系统设置已保存 ✓（员工端刷新生效）",true); }catch(e){ alert("保存失败："+(e.message||e)); }
   };
 }
@@ -1725,7 +1795,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 163, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 164, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
