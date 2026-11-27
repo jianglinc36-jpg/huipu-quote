@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=166', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=167', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -1703,7 +1703,7 @@ function renderPqs(M){
     return '<label>'+esc(lab)+'<input id="pq_'+k+'" value="'+esc(v)+'"></label>';
   }
   var h='<div class="card"><h3>📄 单品报价单 PQS 模板（横版 A4 · 员工端只读）</h3>'
-    +'<div class="hint" style="margin:6px 0 10px;line-height:1.7">这里维护横版「无具体数量」单品报价单的商务条款、工厂与认证信息。保存后员工端打开报价软件自动拉取，<b>前端只能调用与下载，不能修改</b>。产品名称、规格 Features、尺寸重量、装柜量、产品图片来自资料库与报价清单，不在此处设置。<br><b style="color:#1a7a3c">本页参数独立保存在 settings.pqs，不会改动标准报价单的卖方信息、商务条款、价格与任何产品参数。</b></div>'
+    +'<div class="hint" style="margin:6px 0 10px;line-height:1.7">这里维护横版「无具体数量」单品报价单的商务条款、工厂与认证信息。保存后员工端打开报价软件自动拉取，<b>前端只能调用与下载，不能修改</b>。产品名称、规格 Features、尺寸重量、装柜量、产品图片来自资料库与报价清单，不在此处设置。<br><b style="color:#1a7a3c">本页参数独立保存在 settings.pqs，不会改动标准报价单的卖方信息、商务条款、价格与任何产品参数。<br>语言：员工端「报价条款 → 报价单语言」切换时，产品规格自动翻译、本单标签同步，与标准报价单一致；本页填写的商务条款保持原文。</b></div>'
     +'<div class="fgrid">'+PQS_TPL_FIELDS.map(fld).join('')+'</div>'
     +'<div class="subttl" style="font-size:12.5px;font-weight:700;color:var(--brand2);margin:14px 0 6px">副图（可选，与主产品图并排显示）</div>'
     +'<div class="bar"><input type="file" id="pq_pic2" accept="image/*"><button class="btn ghost" id="pq_pic2_clr">清除副图</button><span id="pq_pic2_state" class="hint">'+(p.picture2?'已设置副图':'未设置副图')+'</span></div>'
@@ -1798,7 +1798,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 166, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 167, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
