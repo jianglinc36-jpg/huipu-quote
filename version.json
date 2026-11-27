@@ -1,5 +1,5 @@
 {
-  "version": 169,
-  "built": "2026-11-27T05:27:47.609Z",
-  "notes": "PQS 单品报价单 v169：按用户框选移除左栏「PRODUCT STATUS」状态勾选区块，以及中栏 TECHNICAL & PACKING DATA 表格里重复的 HS Code / Certificates 两行（左栏独立 HS / CERTIFICATION 区块保留）；产品图区 330→400px，图片改 object-fit:cover 铺满整个图框、双图均分，解决「图片太小没填满框」；后台同步移除不再使用的 Product Status 字段。前端仍只读、导出零副作用、语言联动与 v168 后台全量编辑/调取资料库不变。"
+  "version": 170,
+  "built": "2026-11-27T05:40:38.103Z",
+  "notes": "PQS 单品报价单 v170：修复产品图「太小 / 没填满整个框」的真正根因——全局注入样式 #preview img.cellimg{height:46px !important}（标准报价单 Photo 列分页测量用）把 PQS 大图强制压成 46px 小图，v166/v169 只改内联样式（无 !important）一直被覆盖。现用 :not(.pqsimg) 排除该规则、PQS 图片全部尺寸属性加 !important 双保险，保留 .cellimg 使 PDF 导出同源化链路照常命中；另加图片加载失败整框占位（不再出现破图小图标）与无效图片串清空回退资料库图。v168 后台全量编辑/调取资料库、v169 移除框选区块、前端只读、导出零副作用、语言联动全部不变。"
 }
