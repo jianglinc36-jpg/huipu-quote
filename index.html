@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v167</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v168</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5759,7 +5759,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=167', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=168', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5957,7 +5957,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 167;
+  var APP_VER = 168;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
@@ -6131,7 +6131,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   function isPqs(){ var v=ls(MODE_KEY,'quote'); try{ v=JSON.parse(v); }catch(e){} return v==='pqs'; }
   function E(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   var FIELDS=[
-    ['brand','右上角品牌 / 公司名'],['productName','Product Name'],['date','DATE'],
+    ['pqsModel','绑定型号'],['brand','右上角品牌 / 公司名'],['companyCn','公司副标题 / 中文名'],['addr','公司地址'],['web','网址'],['productName','Product Name'],['date','DATE'],
     ['features','Specification / Features（每行一条）','ta'],['productClass','Product Class (Class I, II or III)'],
     ['unitSizeWeight','Unit Size & Weight'],['colorBox','Color Box Size & Weight'],
     ['exportCarton','Export Carton Size & Weight'],['qtyCarton','Quantity/Carton'],
@@ -6205,14 +6205,28 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   function pqsT(){
     var name="English";
     try{ if(typeof getLang==="function") name=getLang().name||"English"; }catch(e){}
-    if(PQS_I18N[name]) return PQS_I18N[name];
-    var out=Object.assign({},PQS_I18N["English"]); out.name=name;
+    var out;
+    if(PQS_I18N[name]) out=Object.assign({},PQS_I18N[name]);
+    else{
+      out=Object.assign({},PQS_I18N["English"]); out.name=name;
+      try{
+        var L=(typeof LANGS!=="undefined" && LANGS[name])?LANGS[name]:null;
+        if(L){
+          var mp=[["title","title"],["date","date"],["model","model"],["modelNo","model"],
+                  ["product","desc"],["specFeat","spec"],["tel","tel"],["dateLabel","date"]];
+          for(var i=0;i<mp.length;i++){ if(L[mp[i][1]]) out[mp[i][0]]=L[mp[i][1]]; }
+        }
+      }catch(e){}
+    }
+    /* v168：后台「固定标签文字覆盖」——每行 KEY=文字，覆盖任意标签；纯内存，不写云端 */
     try{
-      var L=(typeof LANGS!=="undefined" && LANGS[name])?LANGS[name]:null;
-      if(L){
-        var mp=[["title","title"],["date","date"],["model","model"],["modelNo","model"],
-                ["product","desc"],["specFeat","spec"],["tel","tel"],["dateLabel","date"]];
-        for(var i=0;i<mp.length;i++){ if(L[mp[i][1]]) out[mp[i][0]]=L[mp[i][1]]; }
+      var c=cfg()||{}, lb=c.labels||'';
+      if(typeof lb==='string'&&lb.trim()){
+        lb.split('\n').forEach(function(line){
+          var i=line.indexOf('='); if(i<1) return;
+          var k=line.slice(0,i).trim(), v=line.slice(i+1).trim();
+          if(k&&v) out[k]=v;
+        });
       }
     }catch(e){}
     return out;
@@ -6280,9 +6294,20 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       quoteNote:'', extraCost:'', fobPort:'Ningbo, China', moq:'', deliveryDays:'', paymentTerm:'',
       status:'Ready For Production', picture2:'' };
   }
-  /* v164：前端只读——模板来自后台(huipu_sys_v1.settings.pqs)，产品字段实时取自报价清单，
-     两者在内存中合并，绝不写回 localStorage，前端不提供任何编辑入口。 */
-  function merged(){ return Object.assign(tplDefault(), cfg()||{}, prodOf(pqsItemTranslated())); }
+  /* v168：后台 settings.pqs 是前端 PQS 单上每一项信息的唯一来源（后台可全量修改）。
+     员工端只读：合并只在内存进行，绝不写回 localStorage / 云端。
+     产品字段若后台留空，自动回退取报价清单 / 资料库(prodOf)，兼容旧模板，不会出现空白。 */
+  var PQS_PROD_FALLBACK=['productName','modelNumber','features','unitSizeWeight','colorBox','exportCarton','qtyCarton','containerQty','picture'];
+  function merged(){
+    var c=cfg()||{};
+    var d=Object.assign(tplDefault(), c);
+    var prod=prodOf(pqsItemTranslated());
+    PQS_PROD_FALLBACK.forEach(function(k){
+      if(String(d[k]==null?'':d[k]).trim()==='') d[k]=prod[k];
+    });
+    if(!String(d.date||'').trim()) d.date=today();
+    return d;
+  }
   function autofill(){ return merged(); }
   function refreshProd(){ return merged(); }
   function line(label,val){ return '<div style="margin:2px 0">'+label+': '+E(val)+'</div>'; }
@@ -6433,7 +6458,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     var d=merged();
     var body=document.getElementById('pqsBody'); if(!body) return;
     var h=[];
-    h.push('<div style="background:#eef4fb;border:1px solid #cfe0f2;color:#1F4E79;padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.7;margin-bottom:12px">🔒 <b>只读</b>：以下信息全部由后台「单品报价单 PQS 模板」维护，前端仅调用与下载，不能修改。如需变更请到后台保存后刷新本页（或等 1 分钟自动同步）。产品字段来自资料库与报价清单。<br><b style="color:#1F4E79">横版 A4 单页 · 与报价系统一致的蓝色系；PQS 参数独立存储，导出不会改动你之前报价单的任何数据（不生成存档、不去重规格、不写云端）。<br>语言跟随：PQS 按「报价条款 → 报价单语言」自动翻译产品规格，与标准报价单一致；切到中文时整单中文化。</b></div>');
+    h.push('<div style="background:#eef4fb;border:1px solid #cfe0f2;color:#1F4E79;padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.7;margin-bottom:12px">🔒 <b>员工端只读</b>：本单上的每一项信息（产品信息 / 品牌页脚 / 商务条款 / 工厂认证 / 固定标签）都由后台「单品报价单 PQS 模板」维护，后台可一键调取资料库产品资料并逐项修改；员工端仅调用与下载，不能修改。后台保存后刷新本页（或等 1 分钟自动同步）即生效。<br><b style="color:#1F4E79">横版 A4 单页 · 与报价系统一致的蓝色系；PQS 参数独立存储，导出不会改动你之前报价单的任何数据（不生成存档、不去重规格、不写云端）。<br>语言跟随：PQS 按「报价条款 → 报价单语言」自动翻译产品规格，与标准报价单一致；切到中文时整单中文化；后台也可自定义标签文字。</b></div>');
     h.push('<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px">');
     FIELDS.forEach(function(f){
       var k=f[0],lab=f[1]; var v=d[k]==null?'':d[k];
