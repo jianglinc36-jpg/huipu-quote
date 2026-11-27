@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v176</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v177</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5694,7 +5694,14 @@ async function pv90SyncSys(){
     /* v164：PQS 模板只由后台维护，前端只读 */
     /* v171：内容变化时仅重渲 PQS 预览，绝不 reload 页面（避免打断员工端正在编辑的报价单） */
     try{
-      var _pq=sys.settings && sys.settings.pqs ? JSON.stringify(sys.settings.pqs) : '';
+      var _pq='';
+      if(sys.settings && sys.settings.pqs){
+        try{
+          var _pqObj=JSON.parse(JSON.stringify(sys.settings.pqs));
+          delete _pqObj.pqsDb; /* v177：独立资料库只在后台使用，不下发员工端 */
+          _pq=JSON.stringify(_pqObj);
+        }catch(e){ _pq=JSON.stringify(sys.settings.pqs); }
+      }
       var _pqOld=null; try{ _pqOld=localStorage.getItem('huipu_pqs_v1'); }catch(e){}
       if(_pq) localStorage.setItem('huipu_pqs_v1',_pq); else localStorage.removeItem('huipu_pqs_v1');
       if(_pq!==(_pqOld||'') && typeof window.hpPqsActive==='function' && window.hpPqsActive()){
@@ -5770,7 +5777,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=176', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=177', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5968,7 +5975,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 176;
+  var APP_VER = 177;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
@@ -6148,8 +6155,9 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   var FIELDS=[
     ['pqsModel','绑定型号'],['brand','右上角品牌 / 公司名'],['companyCn','公司副标题 / 中文名'],['addr','公司地址'],['web','网址'],['productName','Product Name'],['date','DATE'],
     ['features','Specification / Features（每行一条）','ta'],['productClass','Product Class (Class I, II or III)'],
-    ['unitSizeWeight','Unit Size & Weight'],['colorBox','Color Box Size & Weight'],
-    ['exportCarton','Export Carton Size & Weight'],['qtyCarton','Quantity/Carton'],
+    ['unitSizeWeight','Unit Size & Weight'],['colorBox','Inner Box Size'],
+    ['exportCarton','Outer Box Size'],['netWeight','Net Weight'],['grossWeight','Gross Weight'],
+    ['qtyCarton','Quantity/Carton'],
     ['containerQty',"Quantity per 20'/40'/40HQ"],['hsCode','HS Code'],['certificates','Certificates'],
     ['factoryName','Factory Name'],['salesPerson','Sales-Person Name'],['mobile','Mobile Number'],
     ['email','Email Address'],['factoryAudit','Factory Audit (BSCI or Other)'],['workers','Number of Factory Workers'],
@@ -6168,8 +6176,9 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       hsCert:"HS / CERTIFICATION", hsCode:"HS Code", certificates:"Certificates",
       productPicture:"PRODUCT PICTURE", plug:"STANDARD PLUG", specFeat:"SPECIFICATION / FEATURES",
       techData:"TECHNICAL & PACKING DATA", productClass:"Product Class",
-      unitSize:"Unit Size & Weight", colorBox:"Color Box Size & Weight",
-      exportCarton:"Export Carton Size & Weight", qtyCarton:"Quantity / Carton",
+      unitSize:"Unit Size & Weight", colorBox:"Inner Box Size",
+      exportCarton:"Outer Box Size", netWeight:"Net Weight", grossWeight:"Gross Weight",
+      qtyCarton:"Quantity / Carton",
       containerQty:"Quantity per 20'/40'/40HQ", comTerms:"COMMERCIAL TERMS",
       fobPort:"FOB Port", moq:"MOQ", deliveryDays:"Delivery Days", paymentTerm:"Payment Term",
       brand:"Brand", quoteNote:"Quotation Note", extraCost:"EXTRA COST", none:"None",
@@ -6186,8 +6195,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       hsCert:"HS 编码 / 认证", hsCode:"HS 编码", certificates:"认证",
       productPicture:"产品图片", plug:"常用插头", specFeat:"规格 / 特性",
       techData:"技术与包装参数", productClass:"产品类别",
-      unitSize:"单机尺寸与重量", colorBox:"彩盒尺寸与重量",
-      exportCarton:"外箱尺寸与重量", qtyCarton:"每箱数量",
+      unitSize:"单机尺寸与重量", colorBox:"内盒尺寸",
+      exportCarton:"外盒尺寸", netWeight:"净重", grossWeight:"毛重", qtyCarton:"每箱数量",
       containerQty:"20'/40'/40HQ 装柜量", comTerms:"商务条款",
       fobPort:"FOB 港口", moq:"最小起订量", deliveryDays:"交期", paymentTerm:"付款方式",
       brand:"品牌", quoteNote:"报价说明", extraCost:"额外费用", none:"无",
@@ -6204,8 +6213,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       hsCert:"HS 編碼 / 認證", hsCode:"HS 編碼", certificates:"認證",
       productPicture:"產品圖片", plug:"常用插頭", specFeat:"規格 / 特性",
       techData:"技術與包裝參數", productClass:"產品類別",
-      unitSize:"單機尺寸與重量", colorBox:"彩盒尺寸與重量",
-      exportCarton:"外箱尺寸與重量", qtyCarton:"每箱數量",
+      unitSize:"單機尺寸與重量", colorBox:"內盒尺寸",
+      exportCarton:"外盒尺寸", netWeight:"淨重", grossWeight:"毛重", qtyCarton:"每箱數量",
       containerQty:"20'/40'/40HQ 裝櫃量", comTerms:"商務條款",
       fobPort:"FOB 港口", moq:"最小訂購量", deliveryDays:"交期", paymentTerm:"付款方式",
       brand:"品牌", quoteNote:"報價說明", extraCost:"額外費用", none:"無",
@@ -6268,7 +6277,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     'factoryName','salesPerson','mobile','email','factoryAudit','workers','quoteNote',
     'extraCost','fobPort','moq','deliveryDays','paymentTerm','labels','status'];
   /* 型号 / HS 编码 / 日期 / 数字 / 图片 / 元数据不翻译 */
-  var PQS_NO_TRANS=['modelNumber','date','hsCode','picture','picture2','_savedAt','pqsModel','_model'];
+  var PQS_NO_TRANS=['modelNumber','date','hsCode','picture','picture2','_savedAt','pqsModel','_model','netWeight','grossWeight'];
   function pqsTrText(s){
     var t=String(s==null?'':s).trim(); if(!t) return s;
     var mp=null; try{ mp=window.__hpPqsT||null; }catch(e){}
@@ -6401,9 +6410,11 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     var cont=''; try{ var cl=(typeof calcLoading==='function')?calcLoading(it.pack||''):null; if(cl&&cl.lines) cont=cl.lines.map(function(x){ return x.k+' '+Number(x.pcs).toLocaleString('en-US')+' pcs'; }).join(' / '); }catch(e){}
     d.productName=it.desc||(p&&p.category)||it.model||'';
     d.features=feat.join('\n')||'';
-    d.unitSizeWeight=((p&&p.prod_size)||'')+'cm / '+((p&&p.net_weight)||'')+'kg';
-    d.colorBox=((p&&p.inner_box)||'')+'cm';
-    d.exportCarton=((p&&p.outer_box)||'')+'cm / '+((p&&p.gross_weight)||'')+'kg';
+    d.unitSizeWeight=(p&&p.prod_size)? p.prod_size+' cm / '+((p&&p.net_weight)||'')+' kg':'';
+    d.colorBox=(p&&p.inner_box)? p.inner_box+' cm':'';
+    d.exportCarton=(p&&p.outer_box)? p.outer_box+' cm':'';
+    d.netWeight=(p&&p.net_weight)? p.net_weight+' kg':'';
+    d.grossWeight=(p&&p.gross_weight)? p.gross_weight+' kg':'';
     d.qtyCarton=(p&&p.packing)||it.packing||'';
     d.containerQty=cont;
     d.modelNumber=it.model||'';
@@ -6420,12 +6431,13 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       factoryName:'', salesPerson:'', mobile:'', email:'', addr:'', web:'',
       factoryAudit:'', workers:'',
       quoteNote:'', extraCost:'', fobPort:'', moq:'', deliveryDays:'', paymentTerm:'',
+      netWeight:'', grossWeight:'',
       status:'Ready For Production', picture2:'' };
   }
   /* v168：后台 settings.pqs 是前端 PQS 单上每一项信息的唯一来源（后台可全量修改）。
      员工端只读：合并只在内存进行，绝不写回 localStorage / 云端。
      产品字段若后台留空，自动回退取报价清单 / 资料库(prodOf)，兼容旧模板，不会出现空白。 */
-  var PQS_PROD_FALLBACK=['productName','modelNumber','features','unitSizeWeight','colorBox','exportCarton','qtyCarton','containerQty','picture'];
+  var PQS_PROD_FALLBACK=['productName','modelNumber','features','unitSizeWeight','colorBox','exportCarton','netWeight','grossWeight','qtyCarton','containerQty','picture'];
   function mergedRaw(){
     var c=cfg()||{};
     var d=Object.assign(tplDefault(), c);
@@ -6434,7 +6446,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     var _pi=0; try{ _pi=Math.max(0,Math.min(Number(window.__hpPqsPage)||0,_pa.length-1)); }catch(e){}
     if(_pa.length){
       var pp=_pa[_pi]||{};
-      ['pqsModel','modelNumber','productName','features','productClass','unitSizeWeight','colorBox','exportCarton','qtyCarton','containerQty','hsCode','certificates','picture','picture2'].forEach(function(k){
+      ['pqsModel','modelNumber','productName','features','productClass','unitSizeWeight','colorBox','exportCarton','netWeight','grossWeight','qtyCarton','containerQty','hsCode','certificates','picture','picture2'].forEach(function(k){
         /* 多产品时产品字段只取当前产品，未填即空，绝不继承顶层（第一个产品）的残留值 */
         d[k]=(pp[k]!==undefined?pp[k]:'');
       });
@@ -6503,6 +6515,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     if(_vis('unitSizeWeight')) techRows.push([T.unitSize,d.unitSizeWeight]);
     if(_vis('colorBox')) techRows.push([T.colorBox,d.colorBox]);
     if(_vis('exportCarton')) techRows.push([T.exportCarton,d.exportCarton]);
+    if(_vis('netWeight')) techRows.push([T.netWeight,d.netWeight]);
+    if(_vis('grossWeight')) techRows.push([T.grossWeight,d.grossWeight]);
     if(_vis('qtyCarton')) techRows.push([T.qtyCarton,d.qtyCarton]);
     if(_vis('containerQty')) techRows.push([T.containerQty,d.containerQty]);
     var comRows=[[T.fobPort,d.fobPort],[T.moq,d.moq],[T.deliveryDays,d.deliveryDays],[T.paymentTerm,d.paymentTerm]];
