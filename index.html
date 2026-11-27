@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v172</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v173</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5770,7 +5770,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=172', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=173', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5968,7 +5968,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 172;
+  var APP_VER = 173;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
@@ -6235,7 +6235,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         lb.split('\n').forEach(function(line){
           var i=line.indexOf('='); if(i<1) return;
           var k=line.slice(0,i).trim(), v=line.slice(i+1).trim();
-          if(k&&v) out[k]=v;
+          if(k&&v) out[k]=pqsTrText(v);
         });
       }
     }catch(e){}
@@ -6254,17 +6254,112 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     }
     return it;
   }
-  var _pqsTransSig="";
+  /* ---------- v173：PQS 模板内容全文翻译（后台只读模板 → 纯内存译文副本） ----------
+     v167 只翻了「固定标签」与报价清单 items；v168 后 settings.pqs 成为唯一数据源，
+     后台手填 / 调取的中文（公司名、产品名、规格、地址、说明、Extra Cost、标签覆盖）
+     完全没进翻译池，导致 English 模式下整单中英混杂。
+     这里复用系统同一套 transCache / 行业词典 / 联网翻译 / 缓存，纯内存，不写云端。 */
+  var PQS_TRANS_KEYS=['brand','companyCn','addr','web','productName','features','productClass',
+    'unitSizeWeight','colorBox','exportCarton','qtyCarton','containerQty','certificates',
+    'factoryName','salesPerson','mobile','email','factoryAudit','workers','quoteNote',
+    'extraCost','fobPort','moq','deliveryDays','paymentTerm','labels','status'];
+  /* 型号 / HS 编码 / 日期 / 数字 / 图片 / 元数据不翻译 */
+  var PQS_NO_TRANS=['modelNumber','date','hsCode','picture','picture2','_savedAt','pqsModel','_model'];
+  function pqsTrText(s){
+    var t=String(s==null?'':s).trim(); if(!t) return s;
+    var mp=null; try{ mp=window.__hpPqsT||null; }catch(e){}
+    if(mp && mp[t]!=null && mp[t]!=='') return mp[t];
+    return s;
+  }
+  /* 收集所有需要翻译的文本（按行；labels 为 KEY=文字，只取文字部分） */
+  function pqsCollectTexts(d){
+    var out=[];
+    function pushLine(s){
+      var v=String(s==null?'':s); if(!v.trim()) return;
+      if(out.indexOf(v)<0) out.push(v);
+    }
+    Object.keys(d||{}).forEach(function(k){
+      if(PQS_NO_TRANS.indexOf(k)>=0) return;
+      if(PQS_TRANS_KEYS.indexOf(k)<0 && k.charAt(0)==='_') return;
+      var v=d[k]; if(typeof v!=='string'||!v.trim()) return;
+      v.split('\n').forEach(function(line){
+        var t=line.trim(); if(!t) return;
+        if(k==='labels'){ var i=t.indexOf('='); if(i>0) t=t.slice(i+1).trim(); }
+        if(t) pushLine(t);
+      });
+    });
+    return out;
+  }
+  /* 把译文套到渲染数据上：逐行查表，保留换行；型号/编码/图片原样 */
+  function pqsApplyTrans(d){
+    var mp=null; try{ mp=window.__hpPqsT||null; }catch(e){}
+    if(!mp) return d;
+    Object.keys(d).forEach(function(k){
+      if(PQS_NO_TRANS.indexOf(k)>=0) return;
+      var v=d[k]; if(typeof v!=='string'||!v.trim()) return;
+      d[k]=v.split('\n').map(function(line){
+        var t=line.trim(); if(!t) return line;
+        if(k==='labels'){
+          var i=t.indexOf('='); if(i<1) return line;
+          var key=t.slice(0,i), val=t.slice(i+1).trim(), tv=mp[val];
+          return (tv!=null&&tv!=='')? key+'='+tv : line;
+        }
+        var r=mp[t]; return (r!=null&&r!='')? r : line;
+      }).join('\n');
+    });
+    return d;
+  }
+  var _pqsTransSig="", _pqsBaseSig="", _pqsTransBusy=false;
   async function pqsTransRefresh(){
-    var sig="";
-    try{ if(typeof transSig==="function") sig=transSig(); }catch(e){}
-    if(!sig || sig===_pqsTransSig) return;
-    _pqsTransSig=sig;
-    var tr=null;
-    try{ if(typeof buildTranslated==="function") tr=await buildTranslated(); }catch(e){}
-    if(!tr) return;
-    try{ window.__hpPqsTrans=tr; }catch(e){}
-    try{ if(typeof window.hpPqsRender==="function") await window.hpPqsRender(); }catch(e){}
+    if(_pqsTransBusy) return;
+    var lang='English'; try{ lang=(typeof getLang==='function'?getLang().name:'')||'English'; }catch(e){}
+    var tl='en'; try{ tl=(typeof LANG_CODE!=='undefined'&&LANG_CODE[lang])||'en'; }catch(e){}
+    var raw=null, texts=[];
+    try{ raw=mergedRaw(); texts=pqsCollectTexts(raw); }catch(e){}
+    /* 签名只随「语言 + 后台模板内容」变化，不受译文副本影响，避免循环重译 */
+    var sig=lang+'|';
+    try{ sig+=JSON.stringify(cfg()||{}); }catch(e){ sig+=texts.join('|'); }
+    if(sig===_pqsTransSig) return;
+    _pqsTransBusy=true;
+    try{
+      /* ① 标准报价单链路：items 规格译文（供后台留空的字段回退），保持 v167 行为 */
+      try{
+        var baseSig=''; try{ if(typeof transSig==='function') baseSig=transSig(); }catch(e){}
+        if(baseSig && baseSig!==_pqsBaseSig){
+          _pqsBaseSig=baseSig;
+          var tr=null; try{ if(typeof buildTranslated==='function') tr=await buildTranslated(); }catch(e){}
+          if(tr){ try{ window.__hpPqsTrans=tr; }catch(e){} }
+        }
+      }catch(e){}
+      /* ② 同步：缓存 + 行业词典，零等待立即生效 */
+      var mp={};
+      try{ mp=transSnapshot(texts,tl)||{}; }catch(e){ mp={}; }
+      try{ window.__hpPqsT=mp; }catch(e){}
+      try{ if(typeof window.hpPqsRender==='function') await window.hpPqsRender(); }catch(e){}
+      /* ③ 词典翻不动的，联网补翻（最多 5s；超时保留词典结果，绝不返回空） */
+      var toZh=/^zh/i.test(tl);
+      var need=texts.filter(function(s){
+        var v=mp[s]; if(v!=null&&v!==''&&v!==s) return false;
+        try{ if(transSkip(s,tl)) return false; }catch(e){}
+        var pre=s; try{ pre=applyTradeTerms(s); }catch(e){}
+        return toZh ? /[A-Za-z]{3,}/.test(pre) : /[一-鿿]/.test(pre);
+      });
+      if(need.length){
+        var net=null;
+        try{
+          net=await Promise.race([
+            batchTranslate(texts,tl),
+            new Promise(function(r){ setTimeout(function(){ r(null); },5000); })
+          ]);
+        }catch(e){}
+        if(net){
+          var mm=Object.assign({},mp,net);
+          try{ window.__hpPqsT=mm; }catch(e){}
+        }
+        try{ if(typeof window.hpPqsRender==='function') await window.hpPqsRender(); }catch(e){}
+      }
+      _pqsTransSig=sig;
+    }finally{ _pqsTransBusy=false; }
   }
   window.hpPqsTransRefresh=pqsTransRefresh;
 
@@ -6308,7 +6403,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
      员工端只读：合并只在内存进行，绝不写回 localStorage / 云端。
      产品字段若后台留空，自动回退取报价清单 / 资料库(prodOf)，兼容旧模板，不会出现空白。 */
   var PQS_PROD_FALLBACK=['productName','modelNumber','features','unitSizeWeight','colorBox','exportCarton','qtyCarton','containerQty','picture'];
-  function merged(){
+  function mergedRaw(){
     var c=cfg()||{};
     var d=Object.assign(tplDefault(), c);
     var prod=prodOf(pqsItemTranslated());
@@ -6324,6 +6419,10 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     if(!String(d.date||'').trim()) d.date=today();
     return d;
   }
+  /* v173：merged() 在原始合并结果上套一层「纯内存译文副本」；
+     mergedRaw() 保留未翻译原文，供译文收集使用，避免「译文→再翻」死循环。
+     前端依旧只读：译文只存在 window.__hpPqsT 内存里，不写 localStorage、不写云端。 */
+  function merged(){ return pqsApplyTrans(mergedRaw()); }
   function autofill(){ return merged(); }
   function refreshProd(){ return merged(); }
   function line(label,val){ return '<div style="margin:2px 0">'+label+': '+E(val)+'</div>'; }
