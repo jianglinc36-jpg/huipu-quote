@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=172', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=173', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v172</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v173</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -1738,6 +1738,34 @@ function pqsContainerText(p){
     }).filter(Boolean).join(' / ');
   }catch(e){ return ''; }
 }
+/* ---------- v173：规格自动去重 ----------
+   资料库 spec_text 常含重复行，以及与 PQS 页右侧独立字段重复的包装类行
+   （装箱数 / 内盒 / 外箱 / 净重 / 毛重 / 产品尺寸…）。调取时一次清干净。 */
+function pqsNormSpecLine(s){
+  return String(s==null?'':s).replace(/[：:]\s*/g,': ').replace(/\s+/g,' ').trim().toLowerCase();
+}
+function pqsSpecKey(s){
+  var t=String(s||'').replace(/[：]/g,':'), i=t.indexOf(':');
+  return (i>0? t.slice(0,i):t).replace(/\s+/g,'').trim().toLowerCase();
+}
+var PQS_PACK_KEYS=['装箱数','装箱量','每箱数量','内盒','外箱','净重','毛重','产品尺寸','单机尺寸',
+  '彩盒','装箱','packing','qty/carton','quantity/carton','n.w','g.w','net weight','gross weight',
+  'inner box','outer box','carton','ctn','pcs/ctn','pc/ctn'];
+function pqsDedupeSpec(txt,dropPack){
+  var out=[], seen={}, dup=0, pack=0;
+  String(txt==null?'':txt).split(/\r?\n/).forEach(function(line){
+    var raw=String(line||''), t=raw.trim();
+    if(!t) return;
+    if(dropPack){
+      var k=pqsSpecKey(t);
+      if(PQS_PACK_KEYS.some(function(x){ return k===x||k.indexOf(x)===0; })){ pack++; return; }
+    }
+    var nkey=pqsNormSpecLine(t);
+    if(seen[nkey]){ dup++; return; }
+    seen[nkey]=1; out.push(raw.replace(/\s+$/,''));
+  });
+  return {text:out.join('\n'),dup:dup,pack:pack};
+}
 /* 从资料库（产品库）调取某型号的全部信息填入本页表单 */
 function pqsPullModel(m){
   var p=effProduct(m);
@@ -1745,7 +1773,8 @@ function pqsPullModel(m){
   pqsSet('pqsModel',m);
   pqsSet('modelNumber',m);
   pqsSet('productName',String(p.category||'')||m);
-  pqsSet('features',p.spec_text||'');
+  var _dd=pqsDedupeSpec(p.spec_text||'',true);
+  pqsSet('features',_dd.text);
   var usw=[]; if(p.prod_size) usw.push(p.prod_size+' cm'); if(p.net_weight) usw.push(p.net_weight+' kg');
   pqsSet('unitSizeWeight',usw.join(' / '));
   pqsSet('colorBox',p.inner_box? p.inner_box+' cm':'');
@@ -1756,7 +1785,7 @@ function pqsPullModel(m){
   pqsSet('picture',p.img||'');
   var hid=$("pq_picture"); if(hid) hid.value=p.img||'';
   pqsSetPic('picture',p.img||'',true);
-  pqsHint('✓ 已调取「'+m+'」的资料库参数（名称 / 规格 / 尺寸重量 / 装箱 / 装柜量 / 图片），可继续逐项修改，点保存后前端生效',true);
+  pqsHint('✓ 已调取「'+m+'」的资料库参数（名称 / 规格 / 尺寸重量 / 装箱 / 装柜量 / 图片）'+((_dd.dup||_dd.pack)?'；规格已自动去重 '+_dd.dup+' 行、剔除与右侧字段重复的包装信息 '+_dd.pack+' 行':'')+'，可继续逐项修改，点保存后前端生效',true);
 }
 /* 从「系统设置」调取公司信息与默认报价条款（空值不覆盖已有内容） */
 function pqsPullSys(){
@@ -1881,6 +1910,9 @@ function renderPqs(M){
     try{
       var o={picture:$("pq_picture")?$("pq_picture").value:'', picture2:$("pq_picture2")?$("pq_picture2").value:''};
       pqsAllFields().forEach(function(f){ var el=$("pq_"+f[0]); o[f[0]]=el?String(el.value||'').trim():''; });
+      /* v173：保存前规格再自动去重一次，保证云端模板里不留重复行 */
+      var _sd=pqsDedupeSpec(o.features||'',false);
+      if(_sd.dup){ o.features=_sd.text; var _fe=$("pq_features"); if(_fe) _fe.value=_sd.text; }
       /* v171：保存前强制重读云端最新整行并以云端 SYS 为底，避免后台长期开着时
          用过期缓存整行写回，覆盖员工端刚改的报价清单 / 其他管理员改的系统设置。
          v172：加 12s 外层超时；重读失败明确报错并取消保存（不再静默吞掉）。 */
@@ -1968,7 +2000,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 172, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 173, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
