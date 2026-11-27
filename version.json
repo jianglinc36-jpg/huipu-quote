@@ -1,5 +1,5 @@
 {
-  "version": 171,
-  "built": "2026-11-27T05:52:05.198Z",
-  "notes": "PQS 数据隔离加固 v171：核查确认后台 PQS 保存只写 huipu_sys_v1.settings.pqs（writeStateKeys 为 patch 合并，资料库/报价清单/图片/报价单存档键原样保留），三个工具按钮只填本页表单不落盘，PQS 保存前强制重读云端整行并以云端 SYS 为底（避免后台长期开着时用过期缓存整行写回、覆盖员工端刚改的报价清单），前端 CLOUD_KEYS 不含 huipu_pqs_v1 且 merged() 纯内存。修复 v164 遗留的一处连带影响：pv90ApplySettings 原用整个 settings 做变更签名，PQS 一改就会把后台 seller/terms/cfg 重新覆盖到员工端本地（terms/cfg 会随 doPushCloud 推回云端）并可能强制 reload 打断正在编辑的报价单；现签名排除 pqs（含旧签名平滑迁移），PQS 内容变化只重渲 PQS 预览、绝不 reload，真正改系统设置时下发行为不变。后台 hint 补明确「只写 settings.pqs 一个键」。v170 产品图铺满修复、v168 后台全量编辑/调取资料库、v169 移除框选区块、前端只读、横版零副作用导出、语言联动全部不变。"
+  "version": 172,
+  "built": "2026-11-27T06:14:09.705Z",
+  "notes": "PQS 保存可视化反馈 v172：修复「点了保存没有显示保存成功或失败」。根因是点击后无任何「保存中」状态、v171 保存前强制 readState(true) 最多 20s 且 saveSys() 内 update 无超时（网络慢/挂起时长期静默）、成功提示仅右下角 badge 浮 2.6s 易错过、失败仅 alert() 在桌面 WebView2 被抑制、handler 无最外层 try/catch（异常变成 unhandledrejection 全静默）。现：按钮点击立即变「⏳ 正在保存…」并禁用，按钮旁新增持久内联状态 pqSaveState 分阶段显示「正在连接云端 / 云端已连接，正在写入 / ✅ 保存成功+时间 / ❌ 保存失败+原因 / ⚠ 超时」；成功失败均用右下角彩色长驻 badge（6~10s，不依赖 alert）；readState 加 12s、saveSys 加 30s 双层超时；重读失败明确报错并取消保存以保护数据；保存时写入 pqs._savedAt，页面刷新/重进即可看到「云端上次保存：时间」用于事后核对；新增全局 unhandledrejection / error 兜底提示。PQS 数据隔离加固 v171：核查确认后台 PQS 保存只写 huipu_sys_v1.settings.pqs（writeStateKeys 为 patch 合并，资料库/报价清单/图片/报价单存档键原样保留），三个工具按钮只填本页表单不落盘，PQS 保存前强制重读云端整行并以云端 SYS 为底（避免后台长期开着时用过期缓存整行写回、覆盖员工端刚改的报价清单），前端 CLOUD_KEYS 不含 huipu_pqs_v1 且 merged() 纯内存。修复 v164 遗留的一处连带影响：pv90ApplySettings 原用整个 settings 做变更签名，PQS 一改就会把后台 seller/terms/cfg 重新覆盖到员工端本地（terms/cfg 会随 doPushCloud 推回云端）并可能强制 reload 打断正在编辑的报价单；现签名排除 pqs（含旧签名平滑迁移），PQS 内容变化只重渲 PQS 预览、绝不 reload，真正改系统设置时下发行为不变。后台 hint 补明确「只写 settings.pqs 一个键」。v170 产品图铺满修复、v168 后台全量编辑/调取资料库、v169 移除框选区块、前端只读、横版零副作用导出、语言联动全部不变。"
 }
