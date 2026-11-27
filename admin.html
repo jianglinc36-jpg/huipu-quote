@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=175', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=176', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v175</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v176</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -1990,6 +1990,7 @@ function pqsCfgHtml(p){
   var h='<div class="subttl" style="font-size:12.5px;font-weight:700;color:var(--brand2);margin:14px 0 6px">⑦ 参数增减与显示设置（可自定义）</div>'
     +'<div class="hint" style="margin:0 0 10px;line-height:1.8">取消勾选 = 该参数不再出现在单品报价单上（内容仍保留，随时可恢复）；自定义参数可自由增加、删除，名称与取值都会随「报价单语言」自动翻译。绑定型号、展示型号、产品名称是单据基础信息，始终显示。<br><b style="color:#1a7a3c">留空的版块、留空的参数行一律自动不展示</b>，无需手动关闭。</div>'
     +'<label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:12.5px;color:#8a5a00"><input type="checkbox" id="pqNoFallback"'+((p.noFallback)?' checked':'')+'> 后台留空的字段不自动调取资料库（勾选后：留空 = 单子上不显示；不勾选则沿用资料库数据兜底）</label>'
+    +'<label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:12.5px;color:#1a7a3c"><input type="checkbox" id="pqPlugShow"'+((p.plugShow===false)?'':' checked')+'> 在产品图片下方显示「常用插头」示意图（图片已内置，所有款式共用，无需上传；取消勾选即整块隐藏）</label>'
     +'<div class="subttl" style="font-size:12px;font-weight:700;color:var(--brand2);margin:8px 0 6px">固定参数显示</div>'
     +'<div class="fgrid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:4px 12px">';
   PQS_HIDEABLE.forEach(function(f){
@@ -2027,12 +2028,12 @@ function pqsCollectCfg(){
     var lab=L?String(L.value||'').trim():'', val=V?String(V.value||'').trim():'';
     if(lab||val) custom.push({label:lab,value:val,pos:(P2?P2.value:'tech'),show:!!(S&&S.checked)});
   });
-  var nf=$('pqNoFallback');
-  return {hiddenFields:hidden,customParams:custom,noFallback:!!(nf&&nf.checked)};
+  var nf=$('pqNoFallback'), ps=$('pqPlugShow');
+  return {hiddenFields:hidden,customParams:custom,noFallback:!!(nf&&nf.checked),plugShow:!(ps&&!ps.checked)};
 }
 function pqsKeyHelp(){
   return '<details style="margin:2px 0 10px"><summary class="hint" style="cursor:pointer;font-size:12.5px;color:#1F4E79">查看可覆盖的标签关键词（高级，需原样填写）</summary>'
-    +'<div class="hint" style="padding:8px 10px;background:#f5f8fc;border-radius:6px;line-height:1.9;font-size:12px">title / date / model / product / modelNo / hsCert / hsCode / certificates / productPicture / specFeat / techData / productClass / unitSize / colorBox / exportCarton / qtyCarton / containerQty / comTerms / fobPort / moq / deliveryDays / paymentTerm / brand / quoteNote / extraCost / none / factory / factoryLabel / sales / workers / audit / tel / confirmed / signature / dateLabel / add / page / referenceOnly</div></details>';
+    +'<div class="hint" style="padding:8px 10px;background:#f5f8fc;border-radius:6px;line-height:1.9;font-size:12px">title / date / model / product / modelNo / hsCert / hsCode / certificates / productPicture / specFeat / techData / productClass / unitSize / colorBox / exportCarton / qtyCarton / containerQty / comTerms / fobPort / moq / deliveryDays / paymentTerm / brand / quoteNote / extraCost / none / factory / factoryLabel / sales / workers / audit / tel / confirmed / signature / dateLabel / add / page / referenceOnly / plug</div></details>';
 }
 /* ================= /v175 ================= */
 
@@ -2217,7 +2218,7 @@ function renderPqs(M){
       pqsAllFields().forEach(function(f){ var el=$("pq_"+f[0]); o[f[0]]=el?String(el.value||'').trim():''; });
       /* v175：参数显示开关 + 自定义参数一并保存（仍只写云端模板配置这一项） */
       var _cfg={}; try{ _cfg=pqsCollectCfg(); }catch(e){}
-      o.hiddenFields=_cfg.hiddenFields||[]; o.customParams=_cfg.customParams||[]; o.noFallback=!!_cfg.noFallback;
+      o.hiddenFields=_cfg.hiddenFields||[]; o.customParams=_cfg.customParams||[]; o.noFallback=!!_cfg.noFallback; o.plugShow=(_cfg.plugShow!==false);
       /* v175b：把当前编辑的产品写回清单，其余参数共用，导出时一产品一页 */
       try{ pqsProdSaveCurrent(); }catch(e){}
       o.products=_pqsProducts;
@@ -2311,7 +2312,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 175, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 176, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
