@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=170', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=171', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v170</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v171</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -1823,7 +1823,7 @@ function renderPqs(M){
   var h='<div class="card"><h3>📄 单品报价单 PQS 模板（横版 A4 · 后台全量可编辑）</h3>'
     +'<div class="hint" style="margin:6px 0 10px;line-height:1.7">本页维护横版「无具体数量」单品报价单上的<b>所有信息</b>：产品信息、品牌页脚、商务条款、工厂认证，连固定标签文字也能改。保存后员工端自动拉取，前端只读调用与下载。<br>'
     +'<b style="color:#1a7a3c">📥 调取资料库</b>：选型号点「调取该型号全部资料」，自动带入资料库里的规格、尺寸重量、装箱、装柜量与产品图片，带出后仍可逐项修改；<b style="color:#1a7a3c">🏢 从系统设置导入</b>可一键带出公司信息与默认报价条款。产品字段留空时，前端自动回退取报价清单 / 资料库数据（兼容旧模板）。<br>'
-    +'本页参数独立保存在 settings.pqs，<b>不会改动标准报价单</b>的卖方信息、商务条款、价格与任何产品参数。语言仍跟随员工端「报价条款 → 报价单语言」，标签可用下方第 ⑤ 组自定义覆盖。</div>'
+    +'本页参数<b>只写入 settings.pqs 这一个云端键</b>：<b style="color:#1a7a3c">不会改动资料库、报价清单、已生成的报价单存档，也不会改动标准报价单</b>的卖方信息、商务条款、价格与任何产品参数；「调取资料库」只是把值填进本页输入框，保存前不写任何数据。语言仍跟随员工端「报价条款 → 报价单语言」，标签可用下方第 ⑤ 组自定义覆盖。</div>'
     +'<div class="bar" style="padding:10px 12px;background:#f2f7fc;border:1px solid #d7e6f5;border-radius:6px;flex-wrap:wrap">'
       +'<b style="font-size:12.5px;color:#1F4E79">调取数据库资料</b>'
       +'<select id="pq_pick" style="min-width:230px;max-width:320px"><option value="">选择资料库型号…</option>'+opts+'</select>'
@@ -1855,6 +1855,13 @@ function renderPqs(M){
   $("pqSave").onclick=async function(){
     var o={picture:$("pq_picture")?$("pq_picture").value:'', picture2:$("pq_picture2")?$("pq_picture2").value:''};
     pqsAllFields().forEach(function(f){ var el=$("pq_"+f[0]); o[f[0]]=el?String(el.value||'').trim():''; });
+    /* v171：保存前强制重读云端最新整行并以云端 SYS 为底，避免后台长期开着时
+       用过期缓存整行写回，覆盖员工端刚改的报价清单 / 其他管理员改的系统设置。 */
+    try{
+      var _st=await readState(true);
+      var _cs=_st&&_st[SYS_KEY];
+      if(_cs&&typeof _cs==='object') SYS=_cs;
+    }catch(e){}
     SYS.settings=SYS.settings||{};
     SYS.settings.pqs=o;
     try{ await saveSys(); badge("PQS 模板已保存到云端 ✓（员工端刷新或 1 分钟内自动同步生效）",true); }
@@ -1921,7 +1928,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 170, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 171, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
