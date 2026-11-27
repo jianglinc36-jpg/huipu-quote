@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v160</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v161</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5735,7 +5735,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=160', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=161', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5933,7 +5933,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 160;
+  var APP_VER = 161;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
@@ -6092,6 +6092,204 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       if(now() - t > 60000) window.hpCheckUpdate(false);
     }catch(e){}
   });
+})();
+</script>
+<script id="hpPqsModule">
+(function(){
+  /* ---------- v161 单品报价单 PQS（Preliminary Quote Sheet） ----------
+     独立模块：全部挂 window，通过包装 renderPreview 切换版式；不改动任何既有函数。
+     导出 PDF 会把 .pv-cont 整块截图；无 table.q 行时按单页输出，正好一页 A4。 */
+  var PQS_KEY='huipu_pqs_v1', MODE_KEY='huipu_pqs_mode';
+  function ls(k,d){ try{ var v=localStorage.getItem(k); return v==null?d:v; }catch(e){ return d; } }
+  function put(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+  function cfg(){ try{ return JSON.parse(ls(PQS_KEY,'null'))||null; }catch(e){ return null; } }
+  function isPqs(){ return ls(MODE_KEY,'quote')==='pqs'; }
+  function E(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  var FIELDS=[
+    ['brand','右上角品牌 / 公司名'],['productName','Product Name'],['date','DATE'],
+    ['features','Specification / Features（每行一条）','ta'],['productClass','Product Class (Class I, II or III)'],
+    ['unitSizeWeight','Unit Size & Weight'],['colorBox','Color Box Size & Weight'],
+    ['exportCarton','Export Carton Size & Weight'],['qtyCarton','Quantity/Carton'],
+    ['containerQty',"Quantity per 20'/40'/40HQ"],['hsCode','HS Code'],['certificates','Certificates'],
+    ['factoryName','Factory Name'],['salesPerson','Sales-Person Name'],['mobile','Mobile Number'],
+    ['email','Email Address'],['factoryAudit','Factory Audit (BSCI or Other)'],['workers','Number of Factory Workers'],
+    ['modelNumber','Model Number'],['quoteNote','报价说明（含税 / 交期 / 含价）','ta'],
+    ['extraCost','Extra Cost（每行一条，红色显示）','ta'],['fobPort','FOB Port'],['moq','MOQ'],
+    ['deliveryDays','Delivery Days'],['paymentTerm','Payment Term'],
+    ['status','Product Status','sel']
+  ];
+  function today(){ var d=new Date(); function p(n){return (n<10?'0':'')+n;} return d.getFullYear()+'/'+p(d.getMonth()+1)+'/'+p(d.getDate()); }
+  function pickItem(){
+    var want=(cfg()||{})._model||'';
+    var arr=[]; try{ arr=(typeof items!=='undefined'&&items)?items.filter(Boolean):[]; }catch(e){}
+    if(want){ for(var i=0;i<arr.length;i++){ if(String(arr[i].model||'')===want) return arr[i]; } }
+    return arr[0]||{};
+  }
+  /* v161：无具体数量的模板——产品字段与模板条款分离 */
+  function prodOf(it){
+    it=it||{}; var d={_model:String(it.model||'')};
+    var p=null; try{ p=it.model&&typeof effProduct==='function'? effProduct(it.model):null; }catch(e){}
+    var feat=[]; try{ (it.specRows||[]).forEach(function(r){ if(r&&(r[0]||r[1])) feat.push((r[0]?r[0]+': ':'')+(r[1]||'')); }); }catch(e){}
+    if(!feat.length){ try{ feat=String(it.spec||'').split('\n').filter(Boolean); }catch(e){} }
+    var cont=''; try{ var cl=(typeof calcLoading==='function')?calcLoading(it.pack||''):null; if(cl&&cl.lines) cont=cl.lines.map(function(x){ return x.k+' '+Number(x.pcs).toLocaleString('en-US')+' pcs'; }).join(' / '); }catch(e){}
+    d.productName=it.desc||(p&&p.category)||it.model||'';
+    d.features=feat.join('\n')||'';
+    d.unitSizeWeight=((p&&p.prod_size)||'')+'cm / '+((p&&p.net_weight)||'')+'kg';
+    d.colorBox=((p&&p.inner_box)||'')+'cm';
+    d.exportCarton=((p&&p.outer_box)||'')+'cm / '+((p&&p.gross_weight)||'')+'kg';
+    d.qtyCarton=(p&&p.packing)||it.packing||'';
+    d.containerQty=cont;
+    d.modelNumber=it.model||'';
+    try{ d.picture=(typeof itemImg==='function')?itemImg(it):''; }catch(e){ d.picture=''; }
+    return d;
+  }
+  function tplDefault(){ /* 商务/工厂/认证：模板固定，不随型号变、不绑定数量与单价 */
+    var seller=null,terms=null; try{ seller=readSeller(); }catch(e){} try{ terms=readTerms(); }catch(e){}
+    seller=seller||{}; terms=terms||{};
+    return { brand:seller.en||'HUIPU', date:today(), productClass:'II', hsCode:'8516310000',
+      certificates:'GS, CE, EMC, ERP, ROHS, LVD (from SGS and TUV)',
+      factoryName:seller.en||'', salesPerson:seller.contact||'', mobile:seller.tel||'', email:seller.email||'',
+      factoryAudit:'BSCI & ISO9001', workers:'300',
+      quoteNote:'The quotation includes tax and delivery to Ningbo Port, with regular color box, user manual, PVC power cord and VDE plug',
+      extraCost:'', fobPort:'Ningbo, China', moq:'', deliveryDays:terms.delivery||'', paymentTerm:terms.payment||'',
+      status:'Ready For Production', picture2:'' };
+  }
+  function autofill(){ var d=Object.assign(tplDefault(),prodOf(pickItem())); put(PQS_KEY,d); return d; }
+  function refreshProd(){ /* 切换型号：只更新产品规格，保留用户编辑过的模板条款 */
+    var d=Object.assign(tplDefault(),cfg()||{},prodOf(pickItem())); put(PQS_KEY,d); return d;
+  }
+  function line(label,val){ return '<div style="margin:2px 0">'+label+': '+E(val)+'</div>'; }
+  window.hpPqsRender=async function(){
+    var pv=document.getElementById('preview'); if(!pv) return;
+    var d=cfg()||autofill();
+    var feat=String(d.features||'').split('\n').map(function(s){return s.trim();}).filter(Boolean);
+    var extra=String(d.extraCost||'').split('\n').map(function(s){return s.trim();}).filter(Boolean);
+    var pic=d.picture||''; var pic2=d.picture2||'';
+    var imgs=(pic?'<img class="cellimg" src="'+pic+'" style="max-width:46%;max-height:150px;object-fit:contain;vertical-align:middle;margin-right:6px">':'');
+    if(pic2) imgs+='<img class="cellimg" src="'+pic2+'" style="max-width:46%;max-height:150px;object-fit:contain;vertical-align:middle">';
+    if(!imgs) imgs='<div style="height:150px;border:1px dashed #ccd;display:flex;align-items:center;justify-content:center;color:#99a;font-size:11px">Product Picture</div>';
+    var st=String(d.status||'Ready For Production');
+    var statuses=['Ready For Production','Under Tooling','Design Stage'];
+    var sbox=statuses.map(function(s){ var on=(s===st); return '<div style="margin:3px 0">'+(on?'&#9745;':'&#9744;')+' <span style="'+(on?'background:#ffff00;padding:0 3px;font-weight:700':'')+'">'+E(s)+'</span></div>'; }).join('');
+    var h=[];
+    h.push('<div class="pv-cont" style="width:794px;height:1123px;overflow:hidden;background:#fff;margin:0 auto;box-shadow:0 2px 12px rgba(20,40,80,.16);font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12.5px;line-height:1.34">');
+    h.push('<div style="height:42px;background:#8cc63f"></div>');
+    h.push('<div style="padding:20px 26px 24px">');
+    h.push('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">');
+    h.push('<div style="font-size:25px;font-weight:700">Preliminary Quote Sheet (PQS)</div>');
+    h.push('<div style="font-size:20px;font-weight:700;letter-spacing:2px">'+E(d.brand)+'</div></div>');
+    h.push('<div style="display:flex;align-items:stretch">');
+    /* LEFT */
+    h.push('<div style="width:49%;padding-right:16px">');
+    h.push('<div style="font-size:14px;font-weight:700;margin-bottom:4px">Product Name: '+E(d.productName)+'</div>');
+    h.push('<div style="font-weight:700;margin:8px 0 2px">Specification / Features:</div>');
+    h.push('<div style="font-weight:700;margin-bottom:6px">DATE : '+E(d.date)+'</div>');
+    h.push('<ul style="margin:0 0 8px;padding-left:20px">'+feat.map(function(f){return '<li style="margin:2px 0">'+E(f)+'</li>';}).join('')+'</ul>');
+    h.push(line('<b>Product Class</b> ( Class I, II or III) ?',d.productClass));
+    h.push(line('Unit Size &amp; Weight',d.unitSizeWeight));
+    h.push(line('Color Box Size &amp; Weight',d.colorBox));
+    h.push(line('Export Carton Size &amp; Weight',d.exportCarton));
+    h.push(line('Quantity/Carton',d.qtyCarton));
+    h.push(line("Quantity per 20'/40'/40HQ",d.containerQty));
+    h.push(line('<b>HS Code</b>',d.hsCode));
+    h.push(line('<b>Certificates</b>',d.certificates));
+    h.push('<div style="margin-top:10px">');
+    h.push(line('<b>Factory Name</b>',d.factoryName));
+    h.push(line('Sales-Person Name',d.salesPerson));
+    h.push(line('Mobile Number',d.mobile));
+    h.push(line('Email Address',d.email));
+    h.push(line('Factory Audit (BSCI or Other)',d.factoryAudit));
+    h.push(line('Number of Factory Workers',d.workers));
+    h.push('</div></div>');
+    /* divider */
+    h.push('<div style="width:2px;background:#111;min-height:760px;margin:0 6px"></div>');
+    /* RIGHT */
+    h.push('<div style="width:49%;padding-left:16px">');
+    h.push('<div style="font-size:14px;margin-bottom:2px">Model Number: <b>'+E(d.modelNumber)+'</b></div>');
+    h.push('<div style="font-size:13px;margin-bottom:6px">Product Picture:</div>');
+    h.push('<div style="text-align:center;margin-bottom:8px">'+imgs+'</div>');
+    h.push('<div style="font-size:11.2px;margin-bottom:8px">'+E(d.quoteNote)+'</div>');
+    h.push('<div style="color:#e00000;font-weight:700;margin-bottom:2px">Extra Cost :</div>');
+    h.push('<div style="color:#e00000">'+extra.map(function(x){return '<div>'+E(x)+'</div>';}).join('')+'</div>');
+    h.push('<div style="margin-top:8px">');
+    h.push(line('<b>FOB Port</b>',d.fobPort));
+    h.push(line('<b>MOQ</b>',d.moq));
+    h.push(line('<b>Delivery Days</b>',d.deliveryDays));
+    h.push(line('<b>Payment Term</b>',d.paymentTerm));
+    h.push('</div>');
+    h.push('<div style="margin-top:8px;font-size:12px">Product Status - Please do mention</div>');
+    h.push(sbox);
+    h.push('</div></div></div></div>');
+    pv.innerHTML=h.join('');
+    var info=document.getElementById('pvPageInfo'); if(info) info.textContent='PQS 单品报价单（单页 A4）';
+  };
+  window.hpPqsActive=function(){ return isPqs(); };
+  /* 包装 renderPreview：PQS 模式优先，其余原样走原版 */
+  var _prev=renderPreview;
+  renderPreview=async function(preTr){
+    if(isPqs()){ try{ await window.hpPqsRender(); return; }catch(e){ console.warn('PQS render failed',e); } }
+    return await _prev(preTr);
+  };
+  /* ---------- UI：版式切换 + 参数编辑面板 ---------- */
+  function renderPanel(){
+    var d=cfg()||autofill();
+    var body=document.getElementById('pqsBody'); if(!body) return;
+    var arr=[]; try{ arr=(typeof items!=='undefined'&&items)?items.filter(Boolean):[]; }catch(e){}
+    var mopts=arr.map(function(it){ return '<option value="'+E(it.model||'')+'"'+((it.model||'')===(d._model||'')?' selected':'')+'>'+E(it.model||'')+'</option>'; }).join('');
+    var h=[];
+    h.push('<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">');
+    h.push('<label style="font-size:12px">选择型号：</label><select id="pqsModel" style="padding:4px 8px;min-width:140px">'+mopts+'</select>');
+    h.push('<button type="button" id="pqsRefill" class="btn sm">&#128257; 从清单产品重新填充</button>');
+    h.push('<button type="button" id="pqsUp" class="btn sm ghost">&#128247; 上传副图</button>');
+    h.push('<button type="button" id="pqsUpClear" class="btn sm ghost">清除副图</button>');
+    h.push('<input type="file" id="pqsUpFile" accept="image/*" style="display:none">');
+    h.push('</div>');
+    h.push('<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px">');
+    FIELDS.forEach(function(f){
+      var k=f[0],lab=f[1],typ=f[2]||''; var v=d[k]==null?'':d[k];
+      h.push('<div style="display:flex;flex-direction:column;gap:2px">');
+      h.push('<label style="font-size:11.5px;color:#445">'+E(lab)+'</label>');
+      if(typ==='ta') h.push('<textarea data-k="'+k+'" rows="3" style="width:100%;padding:5px;border:1px solid #ccd;border-radius:5px;font-size:12px;resize:vertical">'+E(v)+'</textarea>');
+      else if(typ==='sel'){ var ss=['Ready For Production','Under Tooling','Design Stage']; h.push('<select data-k="'+k+'" style="padding:5px;border:1px solid #ccd;border-radius:5px;font-size:12px">'+ss.map(function(x){return '<option'+(x===v?' selected':'')+'>'+E(x)+'</option>';}).join('')+'</select>'); }
+      else h.push('<input data-k="'+k+'" value="'+E(v)+'" style="padding:5px;border:1px solid #ccd;border-radius:5px;font-size:12px;width:100%">');
+      h.push('</div>');
+    });
+    h.push('</div>');
+    h.push('<div style="margin-top:8px;font-size:11px;color:#778"><b>无具体数量模板</b>：本版式不含订购数量与单价；切换型号只更新产品规格/尺寸/图片，此处编辑的商务条款与工厂信息会作为模板保留。Features 建议不超过 10 行以保证单页排得下。点「⬇ 导出 PDF」即输出这份单页单品报价单。</div>');
+    body.innerHTML=h.join('');
+    var t=null;
+    body.querySelectorAll('[data-k]').forEach(function(el){
+      el.addEventListener('input',function(){ var dd=cfg()||{}; dd[el.getAttribute('data-k')]=el.value; put(PQS_KEY,dd); clearTimeout(t); t=setTimeout(function(){ try{ renderPreview(); }catch(e){} },220); });
+      el.addEventListener('change',function(){ var dd=cfg()||{}; dd[el.getAttribute('data-k')]=el.value; put(PQS_KEY,dd); clearTimeout(t); t=setTimeout(function(){ try{ renderPreview(); }catch(e){} },120); });
+    });
+    var ms=document.getElementById('pqsModel'); if(ms) ms.onchange=function(){ var dd=cfg()||{}; dd._model=ms.value; put(PQS_KEY,dd); refreshProd(); renderPanel(); try{ renderPreview(); }catch(e){} };
+    var rf=document.getElementById('pqsRefill'); if(rf) rf.onclick=function(){ refreshProd(); renderPanel(); try{ renderPreview(); }catch(e){} };
+    var uf=document.getElementById('pqsUpFile');
+    var ub=document.getElementById('pqsUp'); if(ub&&uf) ub.onclick=function(){ uf.click(); };
+    if(uf) uf.onchange=function(){ var f=uf.files&&uf.files[0]; if(!f) return; var r=new FileReader(); r.onload=function(){ var dd=cfg()||{}; dd.picture2=String(r.result||''); put(PQS_KEY,dd); try{ renderPreview(); }catch(e){} }; r.readAsDataURL(f); };
+    var uc=document.getElementById('pqsUpClear'); if(uc) uc.onclick=function(){ var dd=cfg()||{}; dd.picture2=''; put(PQS_KEY,dd); try{ renderPreview(); }catch(e){} };
+  }
+  function buildUI(){
+    var bar=document.getElementById('printPdf')&&document.getElementById('printPdf').parentNode;
+    if(bar){
+      var wrap=document.createElement('span');
+      wrap.style.cssText='display:inline-flex;align-items:center;gap:5px;margin-right:6px';
+      wrap.innerHTML='<label style="font-size:12px;font-weight:600">版式</label><select id="pqsLayout" style="padding:5px 7px;border:1px solid #ccd;border-radius:6px;font-size:12px"><option value="quote">标准报价单（多产品表格）</option><option value="pqs">单品报价单 PQS（无数量·模板切换）</option></select><button type="button" id="pqsCfgBtn" class="btn sm ghost">&#9881; PQS 参数</button>';
+      bar.insertBefore(wrap,bar.firstChild);
+      var sel=document.getElementById('pqsLayout'); sel.value=isPqs()?'pqs':'quote';
+      sel.onchange=function(){ put(MODE_KEY,sel.value); if(sel.value==='pqs'&&!cfg()) autofill(); try{ renderPreview(); }catch(e){} };
+      var cb=document.getElementById('pqsCfgBtn'); if(cb) cb.onclick=function(){ var m=document.getElementById('pqsModal'); if(m){ m.style.display='flex'; renderPanel(); } };
+    }
+    var m=document.createElement('div'); m.id='pqsModal';
+    m.style.cssText='display:none;position:fixed;inset:0;z-index:99999;background:rgba(10,20,35,.55);align-items:center;justify-content:center;padding:20px';
+    m.innerHTML='<div style="background:#fff;border-radius:10px;width:min(860px,96vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.3)"><div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e3e8ee"><b style="font-size:15px">&#128196; 单品报价单 PQS · 参数设置</b><button type="button" id="pqsClose" style="border:0;background:#eef2f6;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px">关闭</button></div><div id="pqsBody" style="overflow:auto;padding:14px 16px"></div></div>';
+    document.body.appendChild(m);
+    document.getElementById('pqsClose').onclick=function(){ m.style.display='none'; };
+    m.addEventListener('click',function(ev){ if(ev.target===m) m.style.display='none'; });
+    if(isPqs()&&!cfg()) autofill();
+    if(isPqs()){ setTimeout(function(){ try{ renderPreview(); }catch(e){} },60); }
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',buildUI); else buildUI();
 })();
 </script>
 </body>
