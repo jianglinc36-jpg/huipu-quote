@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v161</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v162</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -3399,6 +3399,10 @@ function transSig(){
    员工端点选参数后触发预览重绘，正是最常见的触发场景。
    这里用包装器兜住：异常只记录并在预览区提示，绝不再冒泡成全局错误。 */
 async function renderPreview(preTr){
+  if(typeof window.hpPqsActive==='function' && window.hpPqsActive()){
+    try{ await window.hpPqsRender(); return true; }
+    catch(e){ try{ var _pv=$("preview"); if(_pv) _pv.innerHTML='<div style="padding:22px;color:#c0392b;font-size:13px">\u26a0 单品报价单（PQS）预览失败：'+esc((e&&e.message)||e)+'</div>'; }catch(_){} return false; }
+  }
   try{ return await _renderPreviewCore(preTr); }
   catch(e){
     try{ _lastErr("preview", e); }catch(_){}
@@ -5487,6 +5491,10 @@ function pv89Paginate(m,nRows){
 
 /* ---- 新版分页 renderPreview（签名/行为与原版一致，可无缝替换） ---- */
 renderPreview = async function(preTr){
+  if(typeof window.hpPqsActive==='function' && window.hpPqsActive()){
+    try{ await window.hpPqsRender(); return; }
+    catch(e){ try{ const _pv=$("preview"); if(_pv) _pv.innerHTML='<div style="padding:22px;color:#c0392b;font-size:13px">\u26a0 单品报价单（PQS）预览失败：'+esc((e&&e.message)||e)+'</div>'; }catch(_){} return; }
+  }
   const tok=++_pvToken;
   let tr=null,_err1=null;
   try{ tr=preTr||(await buildTranslated(true)); }catch(e){ _err1=e; tr=null; }
@@ -5735,7 +5743,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=161', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=162', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5933,7 +5941,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 161;
+  var APP_VER = 162;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
@@ -6103,7 +6111,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   function ls(k,d){ try{ var v=localStorage.getItem(k); return v==null?d:v; }catch(e){ return d; } }
   function put(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
   function cfg(){ try{ return JSON.parse(ls(PQS_KEY,'null'))||null; }catch(e){ return null; } }
-  function isPqs(){ return ls(MODE_KEY,'quote')==='pqs'; }
+  function setMode(v){ try{ localStorage.setItem(MODE_KEY,v); }catch(e){ put(MODE_KEY,v); } }
+  function isPqs(){ var v=ls(MODE_KEY,'quote'); try{ v=JSON.parse(v); }catch(e){} return v==='pqs'; }
   function E(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   var FIELDS=[
     ['brand','右上角品牌 / 公司名'],['productName','Product Name'],['date','DATE'],
@@ -6224,10 +6233,16 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     var info=document.getElementById('pvPageInfo'); if(info) info.textContent='PQS 单品报价单（单页 A4）';
   };
   window.hpPqsActive=function(){ return isPqs(); };
-  /* 包装 renderPreview：PQS 模式优先，其余原样走原版 */
+  /* 包装 renderPreview：PQS 模式优先；失败也要可见报错，绝不静默回退到旧版式 */
   var _prev=renderPreview;
   renderPreview=async function(preTr){
-    if(isPqs()){ try{ await window.hpPqsRender(); return; }catch(e){ console.warn('PQS render failed',e); } }
+    if(isPqs()){
+      try{ await window.hpPqsRender(); return; }
+      catch(e){ console.warn('PQS render failed',e);
+        try{ var pv=document.getElementById('preview'); if(pv) pv.innerHTML='<div style="padding:22px;color:#c0392b;font-size:13px;line-height:1.6">\u26a0 单品报价单（PQS）预览生成失败：'+E((e&&e.message)||e)+'<br><span style="color:#666">可点「PQS 参数」检查字段，或切回标准报价单。</span></div>'; }catch(_){}
+        return;
+      }
+    }
     return await _prev(preTr);
   };
   /* ---------- UI：版式切换 + 参数编辑面板 ---------- */
@@ -6277,7 +6292,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       wrap.innerHTML='<label style="font-size:12px;font-weight:600">版式</label><select id="pqsLayout" style="padding:5px 7px;border:1px solid #ccd;border-radius:6px;font-size:12px"><option value="quote">标准报价单（多产品表格）</option><option value="pqs">单品报价单 PQS（无数量·模板切换）</option></select><button type="button" id="pqsCfgBtn" class="btn sm ghost">&#9881; PQS 参数</button>';
       bar.insertBefore(wrap,bar.firstChild);
       var sel=document.getElementById('pqsLayout'); sel.value=isPqs()?'pqs':'quote';
-      sel.onchange=function(){ put(MODE_KEY,sel.value); if(sel.value==='pqs'&&!cfg()) autofill(); try{ renderPreview(); }catch(e){} };
+      sel.onchange=function(){ setMode(sel.value); if(sel.value==='pqs'&&!cfg()) autofill(); try{ if(isPqs()) window.hpPqsRender(); else renderPreview(); }catch(e){ try{ renderPreview(); }catch(_){} } };
       var cb=document.getElementById('pqsCfgBtn'); if(cb) cb.onclick=function(){ var m=document.getElementById('pqsModal'); if(m){ m.style.display='flex'; renderPanel(); } };
     }
     var m=document.createElement('div'); m.id='pqsModal';
@@ -6287,7 +6302,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     document.getElementById('pqsClose').onclick=function(){ m.style.display='none'; };
     m.addEventListener('click',function(ev){ if(ev.target===m) m.style.display='none'; });
     if(isPqs()&&!cfg()) autofill();
-    if(isPqs()){ setTimeout(function(){ try{ renderPreview(); }catch(e){} },60); }
+    if(isPqs()){ setTimeout(function(){ try{ window.hpPqsRender(); }catch(e){ try{ renderPreview(); }catch(_){} } },60); }
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',buildUI); else buildUI();
 })();
