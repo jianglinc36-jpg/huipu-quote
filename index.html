@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v162</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v163</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5743,7 +5743,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=162', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=163', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5941,7 +5941,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 162;
+  var APP_VER = 163;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
@@ -6173,64 +6173,69 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     var d=cfg()||autofill();
     var feat=String(d.features||'').split('\n').map(function(s){return s.trim();}).filter(Boolean);
     var extra=String(d.extraCost||'').split('\n').map(function(s){return s.trim();}).filter(Boolean);
-    var pic=d.picture||''; var pic2=d.picture2||'';
-    var imgs=(pic?'<img class="cellimg" src="'+pic+'" style="max-width:46%;max-height:150px;object-fit:contain;vertical-align:middle;margin-right:6px">':'');
-    if(pic2) imgs+='<img class="cellimg" src="'+pic2+'" style="max-width:46%;max-height:150px;object-fit:contain;vertical-align:middle">';
-    if(!imgs) imgs='<div style="height:150px;border:1px dashed #ccd;display:flex;align-items:center;justify-content:center;color:#99a;font-size:11px">Product Picture</div>';
+    var pic=d.picture||'', pic2=d.picture2||'';
+    var sel={}; try{ sel=readSeller()||{}; }catch(e){}
+    var brand=String(d.brand||'HUIPU');
+    var comp=String(d.factoryName||sel.en||brand);
+    var addr=String(sel.addr||''), web=String(sel.web||'');
+    var tel=String(d.mobile||sel.tel||''), mail=String(d.email||sel.email||'');
     var st=String(d.status||'Ready For Production');
     var statuses=['Ready For Production','Under Tooling','Design Stage'];
-    var sbox=statuses.map(function(s){ var on=(s===st); return '<div style="margin:3px 0">'+(on?'&#9745;':'&#9744;')+' <span style="'+(on?'background:#ffff00;padding:0 3px;font-weight:700':'')+'">'+E(s)+'</span></div>'; }).join('');
+    function esc(x){ return E(x); }
+    /* 产品图：独立大图区，无图时给明显占位 */
+    var picHtml='';
+    if(pic||pic2){
+      picHtml='<div style="display:flex;align-items:center;justify-content:center;height:100%">';
+      if(pic) picHtml+='<img class="cellimg" src="'+esc(pic)+'" style="max-width:'+(pic2?'48%':'88%')+';max-height:196px;object-fit:contain;margin-right:'+(pic2?'6px':'0')+'">';
+      if(pic2) picHtml+='<img class="cellimg" src="'+esc(pic2)+'" style="max-width:48%;max-height:196px;object-fit:contain">';
+      picHtml+='</div>';
+    }else{
+      picHtml='<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#a9b6c2;font-size:10.5px;letter-spacing:1.4px"><div style="font-size:30px;line-height:1;margin-bottom:8px;color:#cfd9e2">&#9635;</div>PRODUCT PICTURE</div>';
+    }
+    function sec(t){ return '<div style="font-size:10.4px;font-weight:800;letter-spacing:1.1px;color:#17324d;background:#f0f6e9;border-left:3px solid #7ab634;padding:5px 9px;margin-bottom:8px">'+t+'</div>'; }
+    function row(k,v,last){
+      return '<div style="display:flex;align-items:center;min-height:25px;border-bottom:'+(last?'none':'1px solid #edf1f4')+'">'
+        +'<div style="width:44%;padding:4px 8px;font-size:10.7px;color:#5b6b78;background:#f8fafb">'+k+'</div>'
+        +'<div style="flex:1;padding:4px 9px;font-size:11.1px;font-weight:600;color:#1c2733;word-break:break-word">'+esc(v)+'</div></div>';
+    }
     var h=[];
-    h.push('<div class="pv-cont" style="width:794px;height:1123px;overflow:hidden;background:#fff;margin:0 auto;box-shadow:0 2px 12px rgba(20,40,80,.16);font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12.5px;line-height:1.34">');
-    h.push('<div style="height:42px;background:#8cc63f"></div>');
-    h.push('<div style="padding:20px 26px 24px">');
-    h.push('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">');
-    h.push('<div style="font-size:25px;font-weight:700">Preliminary Quote Sheet (PQS)</div>');
-    h.push('<div style="font-size:20px;font-weight:700;letter-spacing:2px">'+E(d.brand)+'</div></div>');
-    h.push('<div style="display:flex;align-items:stretch">');
-    /* LEFT */
-    h.push('<div style="width:49%;padding-right:16px">');
-    h.push('<div style="font-size:14px;font-weight:700;margin-bottom:4px">Product Name: '+E(d.productName)+'</div>');
-    h.push('<div style="font-weight:700;margin:8px 0 2px">Specification / Features:</div>');
-    h.push('<div style="font-weight:700;margin-bottom:6px">DATE : '+E(d.date)+'</div>');
-    h.push('<ul style="margin:0 0 8px;padding-left:20px">'+feat.map(function(f){return '<li style="margin:2px 0">'+E(f)+'</li>';}).join('')+'</ul>');
-    h.push(line('<b>Product Class</b> ( Class I, II or III) ?',d.productClass));
-    h.push(line('Unit Size &amp; Weight',d.unitSizeWeight));
-    h.push(line('Color Box Size &amp; Weight',d.colorBox));
-    h.push(line('Export Carton Size &amp; Weight',d.exportCarton));
-    h.push(line('Quantity/Carton',d.qtyCarton));
-    h.push(line("Quantity per 20'/40'/40HQ",d.containerQty));
-    h.push(line('<b>HS Code</b>',d.hsCode));
-    h.push(line('<b>Certificates</b>',d.certificates));
-    h.push('<div style="margin-top:10px">');
-    h.push(line('<b>Factory Name</b>',d.factoryName));
-    h.push(line('Sales-Person Name',d.salesPerson));
-    h.push(line('Mobile Number',d.mobile));
-    h.push(line('Email Address',d.email));
-    h.push(line('Factory Audit (BSCI or Other)',d.factoryAudit));
-    h.push(line('Number of Factory Workers',d.workers));
-    h.push('</div></div>');
-    /* divider */
-    h.push('<div style="width:2px;background:#111;min-height:760px;margin:0 6px"></div>');
-    /* RIGHT */
-    h.push('<div style="width:49%;padding-left:16px">');
-    h.push('<div style="font-size:14px;margin-bottom:2px">Model Number: <b>'+E(d.modelNumber)+'</b></div>');
-    h.push('<div style="font-size:13px;margin-bottom:6px">Product Picture:</div>');
-    h.push('<div style="text-align:center;margin-bottom:8px">'+imgs+'</div>');
-    h.push('<div style="font-size:11.2px;margin-bottom:8px">'+E(d.quoteNote)+'</div>');
-    h.push('<div style="color:#e00000;font-weight:700;margin-bottom:2px">Extra Cost :</div>');
-    h.push('<div style="color:#e00000">'+extra.map(function(x){return '<div>'+E(x)+'</div>';}).join('')+'</div>');
-    h.push('<div style="margin-top:8px">');
-    h.push(line('<b>FOB Port</b>',d.fobPort));
-    h.push(line('<b>MOQ</b>',d.moq));
-    h.push(line('<b>Delivery Days</b>',d.deliveryDays));
-    h.push(line('<b>Payment Term</b>',d.paymentTerm));
+    h.push('<div class="pv-cont" style="width:794px;height:1123px;box-sizing:border-box;overflow:hidden;background:#fff;margin:0 auto;box-shadow:0 2px 12px rgba(20,40,80,.16);font-family:Arial,Helvetica,sans-serif;color:#1c2733;font-size:12px;line-height:1.4;display:flex;flex-direction:column">');
+    /* ---- 顶部品牌头 ---- */
+    h.push('<div style="height:9px;background:#7ab634;flex:none"></div>');
+    h.push('<div style="flex:none;padding:15px 30px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e3e9ee">');
+    h.push('<div style="display:flex;align-items:center"><div style="width:50px;height:50px;background:#7ab634;color:#fff;font-size:19px;font-weight:800;letter-spacing:1px;display:flex;align-items:center;justify-content:center;border-radius:3px;margin-right:12px">HP</div><div><div style="font-size:16.2px;font-weight:800;color:#17324d;white-space:nowrap">'+esc(comp)+'</div><div style="font-size:10.4px;color:#657684;margin-top:3px;white-space:nowrap">'+esc(sel.cn||'Professional Hair Dryer Manufacturer')+' &nbsp;|&nbsp; '+esc(brand)+'</div></div></div>');
+    h.push('<div style="text-align:right"><div style="font-size:18.5px;font-weight:800;color:#17324d;letter-spacing:.5px;white-space:nowrap">PRELIMINARY QUOTE SHEET</div><div style="font-size:10.7px;color:#657684;margin-top:5px;white-space:nowrap">DATE: <b style="color:#1c2733">'+esc(d.date)+'</b> &nbsp;&nbsp;|&nbsp;&nbsp; MODEL: <b style="color:#1c2733">'+esc(d.modelNumber)+'</b></div></div>');
     h.push('</div>');
-    h.push('<div style="margin-top:8px;font-size:12px">Product Status - Please do mention</div>');
-    h.push(sbox);
-    h.push('</div></div></div></div>');
+    /* ---- 主体：左右卡片撑满 ---- */
+    h.push('<div style="flex:1;min-height:0;display:flex;align-items:stretch;padding:18px 30px 16px">');
+    /* 左卡片 */
+    h.push('<div style="width:52%;box-sizing:border-box;border:1px solid #e5ebf0;border-radius:4px;padding:14px 15px;display:flex;flex-direction:column;background:#fff">');
+    h.push('<div style="border-left:4px solid #7ab634;padding:2px 0 3px 11px;margin-bottom:14px"><div style="font-size:9.7px;letter-spacing:1.4px;color:#7b8b98;font-weight:700">PRODUCT</div><div style="font-size:18px;font-weight:800;color:#17324d;line-height:1.22;word-break:break-word">'+esc(d.productName)+'</div><div style="font-size:11.1px;color:#4a5c6b;margin-top:4px">Model No. <b style="color:#17324d">'+esc(d.modelNumber)+'</b></div></div>');
+    h.push('<div style="margin-bottom:14px">'+sec('SPECIFICATION / FEATURES')+'<ol style="margin:0;padding-left:19px">'+feat.map(function(f){return '<li style="margin:3px 0;font-size:11.2px;line-height:1.42;padding-left:2px;word-break:break-word">'+esc(f)+'</li>';}).join('')+'</ol></div>');
+    var rows=[['Product Class',d.productClass],['Unit Size & Weight',d.unitSizeWeight],['Color Box Size & Weight',d.colorBox],['Export Carton Size & Weight',d.exportCarton],['Quantity / Carton',d.qtyCarton],["Quantity per 20'/40'/40HQ",d.containerQty],['HS Code',d.hsCode],['Certificates',d.certificates]];
+    h.push('<div>'+sec('TECHNICAL & PACKING DATA')+'<div style="border:1px solid #e5ebf0;border-radius:3px;overflow:hidden">'+rows.map(function(r,i){return row(r[0],r[1],i===rows.length-1);}).join('')+'</div></div>');
+    h.push('<div style="margin-top:auto;padding-top:14px">'+sec('FACTORY & COMPLIANCE')+'<div style="display:flex;font-size:10.7px;line-height:1.65;color:#3d4f5d"><div style="width:50%;padding-right:8px"><div>Factory: <b>'+esc(d.factoryName)+'</b></div><div>Sales: '+esc(d.salesPerson)+'</div><div>Mobile: '+esc(d.mobile)+'</div><div>Email: '+esc(d.email)+'</div></div><div style="width:50%;padding-left:8px;border-left:1px solid #eef2f5"><div>Audit: <b>'+esc(d.factoryAudit)+'</b></div><div>Workers: '+esc(d.workers)+'</div><div>Brand: '+esc(brand)+'</div><div>Class: '+esc(d.productClass)+'</div></div></div></div>');
+    h.push('</div>');
+    h.push('<div style="width:18px;flex:none"></div>');
+    /* 右卡片 */
+    h.push('<div style="flex:1;box-sizing:border-box;border:1px solid #e5ebf0;border-radius:4px;padding:14px 15px;display:flex;flex-direction:column;background:#fff">');
+    h.push('<div style="height:208px;flex:none;border:1px solid #e2e9ee;border-radius:3px;background:#fafcfd;overflow:hidden;margin-bottom:12px">'+picHtml+'</div>');
+    h.push('<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px"><div><div style="font-size:9.7px;letter-spacing:1.2px;color:#7b8b98;font-weight:700">MODEL NUMBER</div><div style="font-size:17px;font-weight:800;color:#17324d">'+esc(d.modelNumber)+'</div></div><div style="text-align:right"><div style="font-size:9.7px;letter-spacing:1.2px;color:#7b8b98;font-weight:700;margin-bottom:3px">PRODUCT STATUS</div>'+statuses.map(function(x){var on=(x===st);return '<div style="font-size:10.5px;line-height:1.5;color:'+(on?'#1c2733':'#8a99a6')+'">'+(on?'&#9745;':'&#9744;')+' <span style="'+(on?'background:#fff2a8;padding:0 3px;font-weight:700':'')+'">'+esc(x)+'</span></div>';}).join('')+'</div></div>');
+    h.push('<div style="background:#f6f9fc;border-left:3px solid #9db8cf;padding:9px 11px;font-size:10.6px;line-height:1.55;color:#3d5060;margin-bottom:12px"><b style="color:#17324d">Quotation Note</b><br>'+esc(d.quoteNote).replace(/\n/g,'<br>')+'</div>');
+    h.push('<div style="border:1px solid #f0c9c9;background:#fff7f7;padding:8px 11px;margin-bottom:12px"><div style="font-size:10.4px;font-weight:800;color:#c62828;letter-spacing:.6px;margin-bottom:3px">EXTRA COST</div><div style="font-size:10.6px;color:#c62828;line-height:1.5">'+(extra.length?extra.map(function(x){return '<div>'+esc(x)+'</div>';}).join(''):'<span style="color:#93a2ad">None</span>')+'</div></div>');
+    var crows=[['FOB Port',d.fobPort],['MOQ',d.moq],['Delivery Days',d.deliveryDays],['Payment Term',d.paymentTerm],['Brand',brand]];
+    h.push('<div>'+sec('COMMERCIAL TERMS')+'<div style="border:1px solid #e5ebf0;border-radius:3px;overflow:hidden">'+crows.map(function(r,i){return row(r[0],r[1],i===crows.length-1);}).join('')+'</div></div>');
+    h.push('<div style="margin-top:auto;padding-top:14px"><div style="font-size:9.7px;letter-spacing:1.2px;color:#7b8b98;font-weight:700;margin-bottom:16px">CONFIRMED & PREPARED BY</div><div style="display:flex"><div style="flex:1;border-bottom:1px solid #8a99a6;height:20px;margin-right:14px"></div><div style="width:100px;border-bottom:1px solid #8a99a6;height:20px"></div></div><div style="display:flex;font-size:9.7px;color:#8a99a6;margin-top:3px"><div style="flex:1;margin-right:14px">Authorized Signature</div><div style="width:100px">Date</div></div></div>');
+    h.push('</div>');
+    h.push('</div>');
+    /* ---- 页脚 ---- */
+    h.push('<div style="flex:none;border-top:3px solid #7ab634;background:#f6faf2;padding:9px 30px;display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#546776">');
+    h.push('<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:650px"><b style="color:#17324d">'+esc(brand)+'</b>'+(addr?' &nbsp;&middot;&nbsp; Add: '+esc(addr):'')+(tel?' &nbsp;&middot;&nbsp; Tel: '+esc(tel):'')+(mail?' &nbsp;&middot;&nbsp; '+esc(mail):'')+(web?' &nbsp;&middot;&nbsp; '+esc(web):'')+'</div>');
+    h.push('<div style="white-space:nowrap;color:#8a99a6">Page 1 / 1 &nbsp;&middot;&nbsp; For reference only</div>');
+    h.push('</div>');
+    h.push('</div>');
     pv.innerHTML=h.join('');
-    var info=document.getElementById('pvPageInfo'); if(info) info.textContent='PQS 单品报价单（单页 A4）';
+    var info=document.getElementById('pvPageInfo'); if(info) info.textContent='PQS 单品报价单（单页 A4 · 优化排版）';
   };
   window.hpPqsActive=function(){ return isPqs(); };
   /* 包装 renderPreview：PQS 模式优先；失败也要可见报错，绝不静默回退到旧版式 */
