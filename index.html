@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v182</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v183</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5793,7 +5793,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=182', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=183', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5991,7 +5991,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 182;
+  var APP_VER = 183;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
@@ -6386,7 +6386,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     try{ raw=mergedRaw(); texts=pqsCollectTexts(raw); }catch(e){}
     /* 签名只随「语言 + 后台模板内容」变化，不受译文副本影响，避免循环重译 */
     var _pg=0; try{ _pg=Number(window.__hpPqsPage)||0; }catch(e){}
-    var sig=lang+'|'+_pg+'|';
+    var _mds=''; try{ _mds=pqsItemModels().join(','); }catch(e){}
+    var sig=lang+'|'+_pg+'|'+_mds+'|';
     try{ sig+=JSON.stringify(cfg()||{}); }catch(e){ sig+=texts.join('|'); }
     if(sig===_pqsTransSig) return;
     _pqsTransBusy=true;
@@ -6433,21 +6434,67 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   window.hpPqsTransRefresh=pqsTransRefresh;
 
   function today(){ var d=new Date(); function p(n){return (n<10?'0':'')+n;} return d.getFullYear()+'/'+p(d.getMonth()+1)+'/'+p(d.getDate()); }
-  function pickItem(){
+  /* v183：PQS 页模型——由员工端「添加型号」清单(items)驱动，每个型号一页。
+     后台 settings.pqs.products 仍可为指定型号(pqsModel 相同)提供定制字段，优先覆盖；
+     清单为空时退回后台 products / 顶层模板，完全兼容旧模板。 */
+  function pqsItemModels(){
+    var arr=[]; try{ arr=(typeof items!=='undefined'&&items)?items.filter(Boolean):[]; }catch(e){}
+    var seen={}, out=[];
+    for(var i=0;i<arr.length;i++){
+      var m=String(arr[i].model||'').trim();
+      if(m&&!seen[m]){ seen[m]=1; out.push(m); }
+    }
+    return out;
+  }
+  function pqsPages(){
     var c=cfg()||{};
-    var _pa=Array.isArray(c.products)?c.products.filter(Boolean):[];
-    var _pi=0; try{ _pi=Math.max(0,Math.min(Number(window.__hpPqsPage)||0,_pa.length-1)); }catch(e){}
-    var want=(_pa.length&&_pa[_pi]&&_pa[_pi].pqsModel)||c.pqsModel||c._model||'';
+    var cp=Array.isArray(c.products)?c.products.filter(Boolean):[];
+    var ms=pqsItemModels();
+    var models;
+    if(ms.length) models=ms.slice();
+    else if(cp.length) models=cp.map(function(pp,i){ return String(pp.pqsModel||'').trim()||('@p'+(i+1)); });
+    else models=[''];
+    return models.map(function(m){
+      var ov=null;
+      for(var j=0;j<cp.length;j++){ if(String(cp[j].pqsModel||'').trim()===m){ ov=cp[j]; break; } }
+      if(!ov&&cp.length===1&&!String(cp[0].pqsModel||'').trim()) ov=cp[0];
+      return {model:(m.charAt(0)==='@'?'':m), ov:ov};
+    });
+  }
+  function pqsPageCount(){ try{ return Math.max(1,pqsPages().length); }catch(e){ return 1; } }
+  function pqsCurPage(){
+    var t=pqsPageCount(), n=0;
+    try{ n=Math.max(0,Number(window.__hpPqsPage)||0); }catch(e){}
+    var i=Math.min(n,t-1), page={model:'',ov:null};
+    try{ page=pqsPages()[i]||page; }catch(e){}
+    return {i:i,total:t,page:page};
+  }
+  function pickItem(){
+    var cur={model:''};
+    try{ cur=pqsCurPage().page||{model:''}; }catch(e){}
+    var want=cur.model||'';
     var arr=[]; try{ arr=(typeof items!=='undefined'&&items)?items.filter(Boolean):[]; }catch(e){}
     if(want){ for(var i=0;i<arr.length;i++){ if(String(arr[i].model||'')===want) return arr[i]; } }
+    /* v183：清单里没有该型号（后台 products 指定）也用型号构造最小 item，
+       让 prodOf() 从资料库带出名称/规格/图片/价格/包装，不再错误退回第一个型号 */
+    if(want) return {model:want};
+    var c=cfg()||{}, w2=String(c.pqsModel||c._model||'').trim();
+    if(w2){ for(var j=0;j<arr.length;j++){ if(String(arr[j].model||'')===w2) return arr[j]; } return {model:w2}; }
     return arr[0]||{};
   }
   /* v178：资料库价格（人民币底价优先，其次 USD EXW），后台留空时兜底显示 */
+  /* v183b：资料库底价统一两位小数；非纯数字（如「议价」）原样保留，绝不丢值 */
+  function pqsFmtPrice(v,cur){
+    var s=String(v==null?'':v).trim(); if(!s) return '';
+    var n=parseFloat(s.replace(/[^\d.\-]/g,''));
+    if(!isFinite(n)) return cur+' '+s;
+    return cur+' '+n.toFixed(2);
+  }
   function pqsDbPrice(p){
     if(!p) return '';
     var r=p.price_rmb, u=p.price_usd_exw;
-    if(r!=null&&String(r).trim()!=='') return '¥ '+String(r).trim();
-    if(u!=null&&String(u).trim()!=='') return 'USD '+String(u).trim();
+    if(r!=null&&String(r).trim()!=='') return pqsFmtPrice(r,'¥');
+    if(u!=null&&String(u).trim()!=='') return pqsFmtPrice(u,'USD');
     return '';
   }
   /* v161：无具体数量的模板——产品字段与模板条款分离 */
@@ -6464,8 +6511,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     d.exportCarton=(p&&p.outer_box)? p.outer_box+' cm':'';
     d.netWeight=(p&&p.net_weight)? p.net_weight+' kg':'';
     d.grossWeight=(p&&p.gross_weight)? p.gross_weight+' kg':'';
-    d.priceCny=(p&&p.price_rmb!=null&&String(p.price_rmb).trim()!=='')?'¥ '+String(p.price_rmb).trim():'';
-    d.priceUsd=(p&&p.price_usd_exw!=null&&String(p.price_usd_exw).trim()!=='')?'USD '+String(p.price_usd_exw).trim():'';
+    d.priceCny=pqsFmtPrice(p&&p.price_rmb,'¥');
+    d.priceUsd=pqsFmtPrice(p&&p.price_usd_exw,'USD');
     d.price=pqsDbPrice(p);
     d.qtyCarton=(p&&p.packing)||it.packing||'';
     d.containerQty=cont;
@@ -6564,17 +6611,22 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   function mergedRaw(){
     var c=cfg()||{};
     var d=Object.assign(tplDefault(), c);
-    /* v175b：多产品时，当前页的产品字段覆盖顶层；其余参数全部共用 */
-    var _pa=Array.isArray(c.products)?c.products.filter(Boolean):[];
-    var _pi=0; try{ _pi=Math.max(0,Math.min(Number(window.__hpPqsPage)||0,_pa.length-1)); }catch(e){}
-    if(_pa.length){
-      var pp=_pa[_pi]||{};
+    /* v183：当前页 = 「添加型号」清单里的第 N 个型号；后台 products 按型号匹配后覆盖该页字段 */
+    var cur=(pqsCurPage().page)||{model:'',ov:null};
+    if(cur.ov){
       ['pqsModel','modelNumber','productName','features','productClass','unitSizeWeight','colorBox','exportCarton','netWeight','grossWeight','qtyCarton','containerQty','hsCode','certificates','picture','picture2','price','priceCny','priceUsd'].forEach(function(k){
-        /* 多产品时产品字段只取当前产品，未填即空，绝不继承顶层（第一个产品）的残留值 */
-        d[k]=(pp[k]!==undefined?pp[k]:'');
+        /* 产品字段只取当前产品，未填即空，绝不继承顶层（第一个产品）的残留值 */
+        d[k]=(cur.ov[k]!==undefined?cur.ov[k]:'');
       });
     }
     var prod=prodOf(pqsItemTranslated());
+    /* v183：后台模板型号与本次出单型号不同 → 产品级字段整体改用资料库该型号，避免张冠李戴 */
+    if(cur.model && String(d.modelNumber||'').trim() && String(d.modelNumber).trim()!==cur.model){
+      ['modelNumber','productName','features','productClass','unitSizeWeight','colorBox','exportCarton','netWeight','grossWeight','qtyCarton','containerQty','hsCode','certificates','picture','picture2','price','priceCny','priceUsd'].forEach(function(k){
+        d[k]=(prod[k]!==undefined?prod[k]:'');
+      });
+    }
+    if(cur.model) d.modelNumber=cur.model;
     if(!c.noFallback) PQS_PROD_FALLBACK.forEach(function(k){
       if(String(d[k]==null?'':d[k]).trim()==='') d[k]=prod[k];
     });
@@ -6740,16 +6792,21 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     /* v170：真正铺满整个图框。根因是全局 #preview img.cellimg{height:46px !important}
        把 PQS 大图压成 46px 小图；现用独立类 pqsimg 排除该规则，并对全部尺寸属性
        加 !important 双保险；仍保留 .cellimg 以便导出链路（同源化/白底融合）照常命中。 */
-    var picHtml='', _imgFill='height:100% !important;max-width:none !important;object-fit:cover !important;object-position:center;display:block !important;margin:0 !important;background:transparent !important';
+    /* v183：图片完整居中——cover 会裁剪非正方形产品图、把主体推偏；默认 contain 等比完整显示、
+       四周留白对称；后台「图片显示方式」可切回 cover 铺满，「图片对齐位置」九宫格可调正偏的素材。 */
+    var _imgFit=(String(d.imgFit||'').trim()==='cover')?'cover':'contain';
+    var _imgPos=String(d.imgPos||'').trim()||'center center';
+    if(!/^(?:left|center|right)\s+(?:top|center|bottom)$/.test(_imgPos)) _imgPos='center center';
+    var picHtml='', _imgFill='height:100% !important;max-width:none !important;object-fit:'+_imgFit+' !important;object-position:'+_imgPos+';display:block !important;margin:0 !important;background:transparent !important';
     if(pic&&pic2){
-      picHtml='<div style="display:flex;height:100%;gap:4px">'
+      picHtml='<div style="display:flex;width:100%;height:100%;gap:4px">'
         +'<img class="cellimg pqsimg" src="'+esc(pic)+'" style="flex:1 1 0;min-width:0;width:auto !important;'+_imgFill+'">'
         +'<img class="cellimg pqsimg" src="'+esc(pic2)+'" style="flex:1 1 0;min-width:0;width:auto !important;'+_imgFill+'">'
         +'</div>';
     }else if(pic||pic2){
       picHtml='<img class="cellimg pqsimg" src="'+esc(pic||pic2)+'" style="width:100% !important;'+_imgFill+'">';
     }else{
-      picHtml='<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#a9b6c2;font-size:12px;letter-spacing:1.6px"><div style="font-size:48px;line-height:1;margin-bottom:10px;color:#cfd9e2">&#9635;</div>'+T.productPicture+'</div>';
+      picHtml='<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#a9b6c2;font-size:12px;letter-spacing:1.6px"><div style="font-size:48px;line-height:1;margin-bottom:10px;color:#cfd9e2">&#9635;</div>'+T.productPicture+'</div>';
     }
     /* v169：用户框选不需要——HS Code / Certificates 已在左栏「HS / CERTIFICATION」显示，此处不再重复 */
     /* v175：固定参数按后台「显示开关」过滤，自定义参数按所选表格追加 */
@@ -6792,7 +6849,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     /* v176：产品图框改为正方形（左栏内容宽约 315px，故高度 315px）；
        下方固定展示「常用插头」示意图——内置图片，所有款式/所有产品页共用，导出 PDF 同步带上。
        后台「显示常用插头」开关（settings.pqs.plugShow，默认开）可整块隐藏。 */
-    h.push('<div style="height:315px;box-sizing:border-box;flex:none;border:1px solid #e2e9ee;border-radius:3px;background:#fafcfd;overflow:hidden;margin-bottom:7px">'+picHtml+'</div>');
+    h.push('<div style="height:315px;box-sizing:border-box;flex:none;border:1px solid #e2e9ee;border-radius:3px;background:#fafcfd;overflow:hidden;margin-bottom:7px;display:flex;align-items:center;justify-content:center">'+picHtml+'</div>');
     if(d.plugShow!==false){
       h.push('<div style="flex:none;border:1px solid #e2e9ee;border-radius:3px;background:#fff;overflow:hidden;margin-bottom:7px">'
         +'<div style="font-size:11px;font-weight:800;letter-spacing:1.1px;color:#1F4E79;background:#eef4fb;padding:4px 10px;border-bottom:1px solid #e2e9ee">'+esc(T.plug)+'</div>'
@@ -6915,8 +6972,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     },180);
     var info=document.getElementById('pvPageInfo');
     if(info){
-      var _pa2=[]; try{ var _cc=cfg(); if(_cc&&Array.isArray(_cc.products)) _pa2=_cc.products.filter(Boolean); }catch(e){}
-      var _tot=Math.max(1,_pa2.length), _cur=Math.max(0,Math.min(Number(window.__hpPqsPage)||0,_tot-1));
+      var _tot=pqsPageCount(), _cur=Math.max(0,Math.min(Number(window.__hpPqsPage)||0,_tot-1));
       if(_tot>1){
         info.innerHTML='单品报价单（横版 A4 · '+T.name+' · 第 '+(_cur+1)+' / '+_tot+' 页）'
           +' <button id="hpPqsPrev" style="margin-left:8px;padding:2px 8px;border:1px solid #2E75B6;background:#fff;color:#2E75B6;border-radius:4px;cursor:pointer">◀ 上一页</button>'
@@ -6953,9 +7009,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     if(!T.ensurePdfLibs){ if(T.hpAlert) T.hpAlert('PDF 组件未就绪，请刷新页面后重试'); return; }
     var ok=false; try{ ok=await T.ensurePdfLibs(); }catch(e){}
     if(!ok){ if(T.hpAlert) T.hpAlert('⚠ 无法加载 PDF 组件，将打开系统打印（请选「另存为 PDF」）'); try{ window.print(); }catch(e){} return; }
-    var _prods=[];
-    try{ var _cc=cfg(); if(_cc&&Array.isArray(_cc.products)) _prods=_cc.products.filter(Boolean); }catch(e){}
-    var _pages=Math.max(1,_prods.length), _oldPage=0;
+    var _pages=pqsPageCount(), _oldPage=0;
     try{ _oldPage=Number(window.__hpPqsPage)||0; }catch(e){}
     var oldZoom=pv.style.zoom||'';
     try{
@@ -7030,8 +7084,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     h.push('<div style="background:#eef4fb;border:1px solid #cfe0f2;color:#1F4E79;padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.7;margin-bottom:12px">📄 <b>后台模板（只读）</b>：产品信息 / 品牌页脚 / 商务条款 / 固定标签由后台「单品报价单 PQS 模板」维护，后台保存后刷新本页（或等 1 分钟自动同步）即生效。<br><b style="color:#1a7a3c">✎ 下面「本机出单调整」里的联系人信息与全部价格，员工端可直接修改</b>，只保存在本机、立即刷新预览并同步到导出 PDF；不会改动后台模板、不上传、不影响其他同事。<br><b style="color:#1F4E79">横版 A4 单页 · 蓝色系；PQS 参数独立存储，导出不改动之前报价单的任何数据（不生成存档、不去重规格、不写云端）。语言跟随「报价条款 → 报价单语言」自动翻译。</b></div>');
     /* v182：员工端可编辑的本机出单调整卡片 */
     var _ov=pqsOvGet(), _pg=String(pqsOvPage()), _cur=String(pqsCurCfg().currency||'USD').toUpperCase();
-    var _pa=[]; try{ var _cc=cfg(); if(_cc&&Array.isArray(_cc.products)) _pa=_cc.products.filter(Boolean); }catch(e){}
-    var _tot=Math.max(1,_pa.length);
+    var _tot=pqsPageCount();
     h.push('<div id="pqsEditCard" style="background:#f3fbf5;border:1px solid #cfe8d4;border-radius:6px;padding:12px;margin-bottom:12px">'
       +'<div style="font-size:13px;font-weight:800;color:#1a7a3c;margin-bottom:4px">✎ 本机出单调整（员工可修改 · 联系人信息 / 全部价格）</div>'
       +'<div style="font-size:11.5px;color:#4a6b52;line-height:1.7;margin-bottom:10px">这里改的内容<b>只保存在本机</b>，点保存立即刷新预览，导出 PDF 同步生效；<b>不会改动后台模板、不会上传、也不会影响其他同事</b>。后台更新模板后点「↺ 恢复后台模板默认」即可重新跟随。<br>当前：<b id="pqsEdScope">第 '+(_pg*1+1)+' / '+_tot+' 页 · 币种 '+_cur+'</b>；价格与额外费用按「产品页」分别保存，联系人信息整单共用。价格留空即不在单子上显示价格块。</div>'
