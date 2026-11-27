@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v181</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v182</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -5793,7 +5793,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=181', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=182', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5991,7 +5991,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 181;
+  var APP_VER = 182;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
@@ -6165,6 +6165,29 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   function ls(k,d){ try{ var v=localStorage.getItem(k); return v==null?d:v; }catch(e){ return d; } }
   function put(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
   function cfg(){ try{ return JSON.parse(ls(PQS_KEY,'null'))||null; }catch(e){ return null; } }
+  /* ---------- v182：员工端「本机出单调整」覆盖层 ----------
+     后台模板仍是唯一可信源；员工在前端改的联系人信息 / 价格 / 额外费用只存本机
+     localStorage(huipu_pqs_ov_v1)，不进 CLOUD_KEYS、不写云端、不改模板、不上传给他人。
+     mergedRaw() 在返回前套用覆盖，故语言切换、币种切换、换产品页、导出 PDF 逐页重渲
+     都会读到同一份覆盖，预览与 PDF 完全一致。点「恢复后台模板默认」即清空。 */
+  var OV_KEY='huipu_pqs_ov_v1';
+  function pqsOvGet(){ try{ var o=JSON.parse(ls(OV_KEY,'null')); return (o&&typeof o==='object')?o:{}; }catch(e){ return {}; } }
+  function pqsOvPut(o){ try{ put(OV_KEY,o); }catch(e){} }
+  function pqsOvPage(){ try{ return Math.max(0,Number(window.__hpPqsPage)||0); }catch(e){ return 0; } }
+  function pqsOvApply(d){
+    var ov=pqsOvGet();
+    if(Object.prototype.hasOwnProperty.call(ov,'contactInfo')) d.contactInfo=String(ov.contactInfo==null?'':ov.contactInfo);
+    var pg=String(pqsOvPage());
+    var pr=ov.price&&ov.price[pg];
+    if(pr&&typeof pr==='object'){
+      d.priceCny=String(pr.priceCny==null?'':pr.priceCny);
+      d.priceUsd=String(pr.priceUsd==null?'':pr.priceUsd);
+      d.price=String(pr.price==null?'':pr.price);
+    }
+    var ex=ov.extra&&ov.extra[pg];
+    if(ex!==undefined&&ex!==null) d.extraCost=String(ex);
+    return d;
+  }
   function setMode(v){ try{ localStorage.setItem(MODE_KEY,v); }catch(e){ put(MODE_KEY,v); } }
   function isPqs(){ var v=ls(MODE_KEY,'quote'); try{ v=JSON.parse(v); }catch(e){} return v==='pqs'; }
   function E(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -6178,7 +6201,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     ['containerQty',"Quantity per 20'/40'/40HQ"],['hsCode','HS Code'],['certificates','Certificates'],
     ['factoryName','Factory Name'],['salesPerson','Sales-Person Name'],['mobile','Mobile Number'],
     ['email','Email Address'],['factoryAudit','Factory Audit (BSCI or Other)'],['workers','Number of Factory Workers'],
-    ['modelNumber','Model Number'],['quoteNote','报价说明（含税 / 交期 / 含价）','ta'],
+    ['modelNumber','Model Number'],['contactInfo','联系人信息 / Contact Info（每行一条）','ta'],
+    ['quoteNote','报价说明（含税 / 交期 / 含价）','ta'],
     ['extraCost','Extra Cost（每行一条；金额按人民币填写，员工端切 USD 时按系统汇率自动换算）','ta'],['fobPort','FOB Port'],['moq','MOQ'],
     ['deliveryDays','Delivery Days'],['paymentTerm','Payment Term']
   ];
@@ -6199,8 +6223,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       containerQty:"Quantity per 20'/40'/40HQ (pcs)", comTerms:"COMMERCIAL TERMS",
       fobPort:"FOB Port", moq:"MOQ", deliveryDays:"Delivery Days", paymentTerm:"Payment Term",
       brand:"Brand", price:"PRICE", quoteNote:"Quotation Note", extraCost:"EXTRA COST", none:"None",
-      factory:"FACTORY & COMPLIANCE", factoryLabel:"Factory", sales:"Sales",
-      workers:"Workers", audit:"Audit", tel:"Tel",
+      factory:"CONTACT INFORMATION", factoryLabel:"Company", sales:"Sales",
+      workers:"Workers", audit:"Audit", tel:"Tel", contact:"Contact", email:"Email",
       confirmed:"CONFIRMED & PREPARED BY", signature:"Authorized Signature",
       dateLabel:"Date", add:"Add", page:"Page 1 / 1", referenceOnly:"For reference only",
       statuses:["Ready For Production","Under Tooling","Design Stage"]
@@ -6217,8 +6241,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       containerQty:"20'/40'/40HQ 装柜数量（个）", comTerms:"商务条款",
       fobPort:"FOB 港口", moq:"最小起订量", deliveryDays:"交期", paymentTerm:"付款方式",
       brand:"品牌", price:"价格", quoteNote:"报价说明", extraCost:"额外费用", none:"无",
-      factory:"工厂与认证", factoryLabel:"工厂", sales:"销售",
-      workers:"员工数", audit:"审厂", tel:"电话",
+      factory:"联系人信息", factoryLabel:"公司", sales:"销售",
+      workers:"员工数", audit:"审厂", tel:"电话", contact:"联系人", email:"邮箱",
       confirmed:"确认与制单", signature:"授权签名",
       dateLabel:"日期", add:"地址", page:"第 1 页 / 共 1 页", referenceOnly:"仅供参考",
       statuses:["可量产","开模中","设计阶段"]
@@ -6235,8 +6259,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       containerQty:"20'/40'/40HQ 裝櫃數量（個）", comTerms:"商務條款",
       fobPort:"FOB 港口", moq:"最小訂購量", deliveryDays:"交期", paymentTerm:"付款方式",
       brand:"品牌", price:"價格", quoteNote:"報價說明", extraCost:"額外費用", none:"無",
-      factory:"工廠與認證", factoryLabel:"工廠", sales:"銷售",
-      workers:"員工人數", audit:"審廠", tel:"電話",
+      factory:"聯絡人資訊", factoryLabel:"公司", sales:"銷售",
+      workers:"員工人數", audit:"審廠", tel:"電話", contact:"聯絡人", email:"郵箱",
       confirmed:"確認與製單", signature:"授權簽名",
       dateLabel:"日期", add:"地址", page:"第 1 頁 / 共 1 頁", referenceOnly:"僅供參考",
       statuses:["可量產","開模中","設計階段"]
@@ -6291,7 +6315,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
      这里复用系统同一套 transCache / 行业词典 / 联网翻译 / 缓存，纯内存，不写云端。 */
   var PQS_TRANS_KEYS=['brand','companyCn','addr','web','productName','features','productClass',
     'unitSizeWeight','colorBox','exportCarton','qtyCarton','containerQty','certificates',
-    'factoryName','salesPerson','mobile','email','factoryAudit','workers','quoteNote',
+    'factoryName','salesPerson','mobile','email','factoryAudit','workers','quoteNote','contactInfo',
     'extraCost','fobPort','moq','deliveryDays','paymentTerm','labels','status'];
   /* 型号 / HS 编码 / 日期 / 数字 / 图片 / 元数据不翻译 */
   var PQS_NO_TRANS=['modelNumber','date','hsCode','picture','picture2','_savedAt','pqsModel','_model','netWeight','grossWeight','price','priceCny','priceUsd'];
@@ -6530,7 +6554,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       factoryName:'', salesPerson:'', mobile:'', email:'', addr:'', web:'',
       factoryAudit:'', workers:'',
       quoteNote:'', extraCost:'', fobPort:'', moq:'', deliveryDays:'', paymentTerm:'',
-      netWeight:'', grossWeight:'', price:'', priceCny:'', priceUsd:'',
+      netWeight:'', grossWeight:'', price:'', priceCny:'', priceUsd:'', contactInfo:'',
       status:'Ready For Production', picture2:'' };
   }
   /* v168：后台 settings.pqs 是前端 PQS 单上每一项信息的唯一来源（后台可全量修改）。
@@ -6561,6 +6585,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       if(!c.noFallback && k==='picture' && !String(d[k]==null?'':d[k]).trim()) d[k]=prod.picture||'';
     });
     if(!String(d.date||'').trim()) d.date=today();
+    /* v182：套用员工端本机调整（联系人 / 价格 / 额外费用）；导出逐页重渲自动按页号取覆盖 */
+    try{ if(!window.__hpPqsNoOv) d=pqsOvApply(d); }catch(e){}
     return d;
   }
   /* v173：merged() 在原始合并结果上套一层「纯内存译文副本」；
@@ -6622,6 +6648,71 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
       }
       apply(best);
       try{ mid.setAttribute('data-fit',best.toFixed(3)); }catch(e){}
+    }catch(e){}
+  }
+  /* v182b：右栏「联系人信息」行数可任意增减，但右栏是 flex 列且额外费用块自带
+     overflow:hidden，联系人变多时 flex 会压缩该块、裁掉后几行（实测 8 行时
+     EXTRA COST 只剩 2 行）。这里先禁止所有直接子元素被 flex 压缩，保持自然高度，
+     再仿中栏做「只缩不放大」的等比自适应：内容超高时整体缩小，所有版块完整
+     不裁切；标准内容时 fit=1.00，外观完全不变。纯 px 写回，3x PNG 导出兼容。 */
+  function pqsFitRight(pvEl){
+    try{
+      var col=pvEl&&pvEl.querySelector?pvEl.querySelector('.pqs-right'):null;
+      if(!col||!col.querySelectorAll||!col.children) return;
+      /* 关键：禁止 flex 压缩，否则带 overflow:hidden 的子块会被裁掉内容 */
+      Array.prototype.slice.call(col.children).forEach(function(c){ try{ c.style.flexShrink='0'; }catch(e){} });
+      var cs=(typeof getComputedStyle==='function')?getComputedStyle(col):null;
+      var padT=cs?(parseFloat(cs.paddingTop)||0):13;
+      var padB=cs?(parseFloat(cs.paddingBottom)||0):13;
+      var avail=col.clientHeight-padT-padB-4;
+      if(avail<60||col.children.length<1) return;
+      var keys=['fontSize','minHeight','paddingTop','paddingBottom','marginTop','marginBottom','lineHeight'];
+      var targets=[];
+      Array.prototype.slice.call(col.querySelectorAll('*')).forEach(function(el){
+        var o={el:el,v:{}},n=0;
+        keys.forEach(function(p){
+          var raw=el.style&&el.style[p];
+          if(raw && /^-?[0-9.]+px$/.test(String(raw).trim())){ o.v[p]=parseFloat(raw); n++; }
+        });
+        if(n) targets.push(o);
+      });
+      function apply(k){
+        for(var i=0;i<targets.length;i++){
+          var t=targets[i];
+          for(var p in t.v){ if(Object.prototype.hasOwnProperty.call(t.v,p)) t.el.style[p]=(t.v[p]*k).toFixed(2)+'px'; }
+        }
+      }
+      /* 内容自然总高：右栏是 flex 列且联系人块 margin-top:auto 贴底，
+         若用「子元素最大底边」测量，贴底元素会让结果恒等于栏底、不随缩放变化。
+         故改为累加各子元素高度 + 上下外边距（auto 计 0），与贴底位置无关。 */
+      function natural(){
+        var total=0, ks=col.children;
+        for(var i=0;i<ks.length;i++){
+          var e=ks[i];
+          total+=e.offsetHeight;
+          try{
+            var c2=(typeof getComputedStyle==='function')?getComputedStyle(e):null;
+            if(c2){
+              /* flex 的 margin-top:auto 会被 Chrome 解析成「剩余空间」的具体像素，
+                 累加它会让自然高度虚高且不随缩放下降 → 必须按内联 auto 判 0 */
+              var mt=(e.style&&e.style.marginTop==='auto')?0:(parseFloat(c2.marginTop)||0);
+              total+=mt+(parseFloat(c2.marginBottom)||0);
+            }
+          }catch(err){}
+        }
+        return total;
+      }
+      apply(1);
+      try{ col.setAttribute('data-nat1',Math.round(natural())); col.setAttribute('data-avail',Math.round(avail)); }catch(e){}
+      /* 只缩不放大：上限 1.00，标准档外观不变；下限 0.60 应对联系人极多的情况 */
+      var lo=0.60, hi=1.00, best=0.60;
+      for(var i=0;i<12;i++){
+        var k=(lo+hi)/2;
+        apply(k);
+        if(natural()>avail) hi=k; else { lo=k; best=k; }
+      }
+      apply(best);
+      try{ col.setAttribute('data-fit',best.toFixed(3)); }catch(e){}
     }catch(e){}
   }
   window.hpPqsRender=async function(){
@@ -6736,7 +6827,9 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
        参数多则缩小、参数少则放大，始终刚好触底、不溢出、不裁切。 */
     h.push('</div>');
     /* --- 右栏：商务条款 + 说明 + 工厂 + 签名 --- */
-    h.push('<div style="width:27%;box-sizing:border-box;border:1px solid #e5ebf0;border-radius:4px;padding:13px 14px;display:flex;flex-direction:column;background:#fff">');
+    /* v182b：右栏也可自适应——position:relative 让子元素 offsetTop 相对本栏，
+       overflow:hidden 兜底防溢出；class=pqs-right 供 pqsFitRight 选择 */
+    h.push('<div class="pqs-right" style="position:relative;width:27%;box-sizing:border-box;border:1px solid #e5ebf0;border-radius:4px;padding:13px 14px;display:flex;flex-direction:column;background:#fff;overflow:hidden">');
     if(comRows.length){
       h.push(sec(T.comTerms));
       h.push('<div style="border:1px solid #e5ebf0;border-radius:3px;overflow:hidden">'+comRows.map(function(r,i){return row(r[0],r[1],i===comRows.length-1);}).join('')+'</div>');
@@ -6766,7 +6859,30 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
           +'<div style="width:58%;padding:4px 9px;font-size:11.8px;color:#8a5a00;word-break:break-word">'+esc(k)+'</div>'
           +'<div style="flex:1;padding:4px 10px;font-size:12.4px;font-weight:700;color:#9a5b00;text-align:right;word-break:break-word">'+esc(pqsExtraMoney(v,_exCfg))+'</div></div>';
       }).join('')+'</div>');
-    if(_has(d.factoryName)||_has(d.salesPerson)||_has(d.workers)||_has(d.factoryAudit)||_has(tel)||_has(mail)) h.push('<div style="margin-top:auto;padding-top:9px">'+sec(T.factory)+'<div style="font-size:11.8px;line-height:1.65;color:#3d4f5d"><div>'+T.factoryLabel+': <b>'+esc(d.factoryName)+'</b></div><div>'+T.sales+': '+esc(d.salesPerson)+' &nbsp;|&nbsp; '+T.workers+': '+esc(d.workers)+'</div><div>'+T.audit+': <b>'+esc(d.factoryAudit)+'</b></div><div>'+T.tel+': '+esc(tel)+' &nbsp;|&nbsp; '+esc(mail)+'</div></div></div>');
+    /* v182：按用户要求把右栏底部「FACTORY & COMPLIANCE」改为「联系人信息」——
+       整齐键值表格（与技术参数表同款），来源后台 contactInfo（每行一条「标签: 值」）。
+       旧模板没有 contactInfo 时自动用 salesPerson / mobile / email 回退，不再显示
+       工厂人数 / 验厂等非联系人信息。员工端可在本机覆盖，导出 PDF 同步。 */
+    var _ctLines=String(d.contactInfo||'').split('\n').map(function(s){return s.trim();}).filter(Boolean);
+    if(!_ctLines.length){
+      var _ctName=String(d.salesPerson||'').trim(), _ctTel=String(d.mobile||'').trim(), _ctMail=String(d.email||'').trim();
+      if(_ctName) _ctLines.push(T.contact+': '+_ctName);
+      if(_ctTel)  _ctLines.push(T.tel+': '+_ctTel);
+      if(_ctMail) _ctLines.push(T.email+': '+_ctMail);
+    }
+    if(_ctLines.length){
+      h.push('<div style="margin-top:auto;padding-top:9px">'+sec(T.factory)
+        +'<div style="border:1px solid #e5ebf0;border-radius:3px;overflow:hidden">'
+        +_ctLines.map(function(ln,i){
+          var m=String(ln).match(/^([^:：]{1,40})\s*[:：]\s*([\s\S]*)$/);
+          var last=(i===_ctLines.length-1);
+          if(!m) return '<div style="padding:5px 9px;font-size:11.8px;color:#3d4f5d;line-height:1.5;border-bottom:'+(last?'none':'1px solid #edf1f4')+'">'+esc(String(ln))+'</div>';
+          var k=String(m[1]).trim(), v=String(m[2]).trim();
+          return '<div style="display:flex;align-items:center;min-height:27px;border-bottom:'+(last?'none':'1px solid #edf1f4')+'">'
+            +'<div style="width:38%;padding:4px 9px;font-size:11.6px;color:#5b6b78;background:#f8fafb">'+esc(k)+'</div>'
+            +'<div style="flex:1;padding:4px 9px;font-size:12.2px;font-weight:600;color:#1c2733;word-break:break-word">'+esc(v)+'</div></div>';
+        }).join('')+'</div></div>');
+    }
     /* v179：按用户要求移除右下角「CONFIRMED & PREPARED BY / 授权签名 / 日期」整块 */
     h.push('</div>');
     h.push('</div>');
@@ -6779,6 +6895,8 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     pv.innerHTML=h.join('');
     /* v181：中栏自适应字号即时生效；导出 PDF 前 hpPqsExport 会重渲本函数，故截图同步带上 */
     try{ pqsAutoFit(pv); }catch(e){}
+    /* v182b：右栏联系人多时整体等比缩小，避免额外费用等版块被 flex 压缩裁切 */
+    try{ pqsFitRight(pv); }catch(e){}
     /* v170：图片加载失败时整框显示占位，不再留下破图小图标 */
     setTimeout(function(){
       try{
@@ -6909,31 +7027,79 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
     var d=merged();
     var body=document.getElementById('pqsBody'); if(!body) return;
     var h=[];
-    h.push('<div style="background:#eef4fb;border:1px solid #cfe0f2;color:#1F4E79;padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.7;margin-bottom:12px">🔒 <b>员工端只读</b>：本单上的每一项信息（产品信息 / 品牌页脚 / 商务条款 / 工厂认证 / 固定标签）都由后台「单品报价单 PQS 模板」维护，后台可一键调取资料库产品资料并逐项修改；员工端仅调用与下载，不能修改。后台保存后刷新本页（或等 1 分钟自动同步）即生效。<br><b style="color:#1F4E79">横版 A4 单页 · 与报价系统一致的蓝色系；PQS 参数独立存储，导出不会改动你之前报价单的任何数据（不生成存档、不去重规格、不写云端）。<br>语言跟随：PQS 按「报价条款 → 报价单语言」自动翻译产品规格，与标准报价单一致；切到中文时整单中文化；后台也可自定义标签文字。</b></div>');
+    h.push('<div style="background:#eef4fb;border:1px solid #cfe0f2;color:#1F4E79;padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.7;margin-bottom:12px">📄 <b>后台模板（只读）</b>：产品信息 / 品牌页脚 / 商务条款 / 固定标签由后台「单品报价单 PQS 模板」维护，后台保存后刷新本页（或等 1 分钟自动同步）即生效。<br><b style="color:#1a7a3c">✎ 下面「本机出单调整」里的联系人信息与全部价格，员工端可直接修改</b>，只保存在本机、立即刷新预览并同步到导出 PDF；不会改动后台模板、不上传、不影响其他同事。<br><b style="color:#1F4E79">横版 A4 单页 · 蓝色系；PQS 参数独立存储，导出不改动之前报价单的任何数据（不生成存档、不去重规格、不写云端）。语言跟随「报价条款 → 报价单语言」自动翻译。</b></div>');
+    /* v182：员工端可编辑的本机出单调整卡片 */
+    var _ov=pqsOvGet(), _pg=String(pqsOvPage()), _cur=String(pqsCurCfg().currency||'USD').toUpperCase();
+    var _pa=[]; try{ var _cc=cfg(); if(_cc&&Array.isArray(_cc.products)) _pa=_cc.products.filter(Boolean); }catch(e){}
+    var _tot=Math.max(1,_pa.length);
+    h.push('<div id="pqsEditCard" style="background:#f3fbf5;border:1px solid #cfe8d4;border-radius:6px;padding:12px;margin-bottom:12px">'
+      +'<div style="font-size:13px;font-weight:800;color:#1a7a3c;margin-bottom:4px">✎ 本机出单调整（员工可修改 · 联系人信息 / 全部价格）</div>'
+      +'<div style="font-size:11.5px;color:#4a6b52;line-height:1.7;margin-bottom:10px">这里改的内容<b>只保存在本机</b>，点保存立即刷新预览，导出 PDF 同步生效；<b>不会改动后台模板、不会上传、也不会影响其他同事</b>。后台更新模板后点「↺ 恢复后台模板默认」即可重新跟随。<br>当前：<b id="pqsEdScope">第 '+(_pg*1+1)+' / '+_tot+' 页 · 币种 '+_cur+'</b>；价格与额外费用按「产品页」分别保存，联系人信息整单共用。价格留空即不在单子上显示价格块。</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px">'
+      +'<label style="grid-column:span 2;font-size:11.5px;color:#4a5c6b">联系人信息（每行一条「标签: 值」，例如「联系人: David Jiang」；留空 = 用后台默认）<textarea id="pqsEdContact" rows="4" style="width:100%;box-sizing:border-box;margin-top:3px;font-size:12px;padding:6px;border:1px solid #ccd;border-radius:5px">'+E(String(d.contactInfo||''))+'</textarea></label>'
+      +'<label style="font-size:11.5px;color:#4a5c6b">价格 · 人民币 ¥<input id="pqsEdPriceCny" value="'+E(String(d.priceCny||''))+'" style="width:100%;box-sizing:border-box;margin-top:3px;font-size:12px;padding:6px;border:1px solid #ccd;border-radius:5px"></label>'
+      +'<label style="font-size:11.5px;color:#4a5c6b">价格 · 美金 USD<input id="pqsEdPriceUsd" value="'+E(String(d.priceUsd||''))+'" style="width:100%;box-sizing:border-box;margin-top:3px;font-size:12px;padding:6px;border:1px solid #ccd;border-radius:5px"></label>'
+      +'<label style="grid-column:span 2;font-size:11.5px;color:#4a5c6b">价格 · 自定义文本（旧版兼容；上面两栏都留空时才显示）<input id="pqsEdPrice" value="'+E(String(d.price||''))+'" style="width:100%;box-sizing:border-box;margin-top:3px;font-size:12px;padding:6px;border:1px solid #ccd;border-radius:5px"></label>'
+      +'<label style="grid-column:span 2;font-size:11.5px;color:#4a5c6b">额外费用（每行一条；金额按人民币填写，员工端切 USD 时按系统汇率自动换算，也可直接写 USD 金额）<textarea id="pqsEdExtra" rows="4" style="width:100%;box-sizing:border-box;margin-top:3px;font-size:12px;padding:6px;border:1px solid #ccd;border-radius:5px">'+E(String(d.extraCost||''))+'</textarea></label>'
+      +'</div>'
+      +'<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" id="pqsEdSave" class="btn sm">💾 保存到本机并刷新预览</button><button type="button" id="pqsEdReset" class="btn sm ghost">↺ 恢复后台模板默认</button><span id="pqsEdState" style="font-size:12px;font-weight:700;color:#1a7a3c"></span></div>'
+      +'</div>');
     h.push('<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px">');
     FIELDS.forEach(function(f){
       var k=f[0],lab=f[1]; var v=d[k]==null?'':d[k];
-      if(k==='features'||k==='quoteNote'||k==='extraCost') v=String(v).replace(/\n/g,' / ');
+      if(k==='features'||k==='quoteNote'||k==='extraCost'||k==='contactInfo') v=String(v).replace(/\n/g,' / ');
       h.push('<div style="border-bottom:1px solid #eef2f5;padding:5px 2px"><div style="font-size:10.5px;color:#7b8b98">'+E(lab)+'</div><div style="font-size:12px;color:#1c2733;word-break:break-word">'+E(v||'—')+'</div></div>');
     });
     h.push('</div>');
-    h.push('<div style="margin-top:10px;font-size:11px;color:#778"><b>无具体数量模板</b>：本版式不含订购数量与单价；点「⬇ 导出 PDF」即输出横版 A4 单页单品报价单。点预览工具条「适宽」即可完整显示整页（切换版式会自动适宽），导出 PDF 为完整横版 A4。报价语言与标准报价单联动，切换「报价条款 → 报价单语言」后本单自动翻译。</div>');
+    h.push('<div style="margin-top:10px;font-size:11px;color:#778"><b>无具体数量模板</b>：本版式不含订购数量与单价；点「⬇ 导出 PDF」即输出横版 A4 单页单品报价单（本机调整后的联系人信息与价格一并导出）。点预览工具条「适宽」即可完整显示整页（切换版式会自动适宽），导出 PDF 为完整横版 A4。报价语言与标准报价单联动，切换「报价条款 → 报价单语言」后本单自动翻译。</div>');
     body.innerHTML=h.join('');
+    /* v182：保存 / 恢复本机出单调整 */
+    var _edState=document.getElementById('pqsEdState');
+    var _setEd=function(t,c){ if(_edState){ _edState.textContent=t; _edState.style.color=c||'#1a7a3c'; } };
+    var _sv=document.getElementById('pqsEdSave');
+    if(_sv) _sv.onclick=function(){
+      try{
+        var ov=pqsOvGet(), pg=String(pqsOvPage()), base;
+        try{ window.__hpPqsNoOv=true; base=mergedRaw(); }finally{ window.__hpPqsNoOv=false; }
+        var g=function(id){ var e=document.getElementById(id); return e?String(e.value||''):''; };
+        var ct=g('pqsEdContact'), pc=g('pqsEdPriceCny'), pu=g('pqsEdPriceUsd'), pp=g('pqsEdPrice'), ex=g('pqsEdExtra');
+        /* 只写「与后台原值不同」的字段：原样打开点保存不会把后台值固化，后台更新仍跟随 */
+        if(ct!==String(base.contactInfo==null?'':base.contactInfo)) ov.contactInfo=ct; else delete ov.contactInfo;
+        ov.price=ov.price||{}; ov.extra=ov.extra||{};
+        var same=(pc===String(base.priceCny==null?'':base.priceCny) && pu===String(base.priceUsd==null?'':base.priceUsd) && pp===String(base.price==null?'':base.price));
+        if(same) delete ov.price[pg]; else ov.price[pg]={priceCny:pc,priceUsd:pu,price:pp};
+        if(ex===String(base.extraCost==null?'':base.extraCost)) delete ov.extra[pg]; else ov.extra[pg]=ex;
+        pqsOvPut(ov);
+        _setEd('✅ 已保存到本机，预览已刷新','#1a7a3c');
+        try{ if(typeof window.hpPqsRender==='function') window.hpPqsRender(); }catch(e){}
+        try{ if(typeof syncBadge==='function') syncBadge('✅ 出单调整已保存到本机'); }catch(e){}
+      }catch(e){ _setEd('❌ 保存失败：'+((e&&e.message)||e),'#c0392b'); }
+    };
+    var _rs=document.getElementById('pqsEdReset');
+    if(_rs) _rs.onclick=function(){
+      try{
+        pqsOvPut({});
+        _setEd('↺ 已恢复后台模板默认','#1a7a3c');
+        try{ if(typeof window.hpPqsRender==='function') window.hpPqsRender(); }catch(e){}
+        try{ renderPanel(); }catch(e){}
+      }catch(e){ _setEd('❌ 恢复失败：'+((e&&e.message)||e),'#c0392b'); }
+    };
   }
   function buildUI(){
     var bar=document.getElementById('printPdf')&&document.getElementById('printPdf').parentNode;
     if(bar){
       var wrap=document.createElement('span');
       wrap.style.cssText='display:inline-flex;align-items:center;gap:5px;margin-right:6px';
-      wrap.innerHTML='<label style="font-size:12px;font-weight:600">版式</label><select id="pqsLayout" style="padding:5px 7px;border:1px solid #ccd;border-radius:6px;font-size:12px"><option value="quote">标准报价单（多产品表格）</option><option value="pqs">单品报价单 PQS（横版 A4·无数量）</option></select><button type="button" id="pqsCfgBtn" class="btn sm ghost">📋 模板信息（只读）</button>';
+      wrap.innerHTML='<label style="font-size:12px;font-weight:600">版式</label><select id="pqsLayout" style="padding:5px 7px;border:1px solid #ccd;border-radius:6px;font-size:12px"><option value="quote">标准报价单（多产品表格）</option><option value="pqs">单品报价单 PQS（横版 A4·无数量）</option></select><button type="button" id="pqsCfgBtn" class="btn sm ghost">📋 模板信息</button><button type="button" id="pqsEditBtn" class="btn sm ghost">✎ 编辑联系人 / 价格</button>';
       bar.insertBefore(wrap,bar.firstChild);
       var sel=document.getElementById('pqsLayout'); sel.value=isPqs()?'pqs':'quote';
       sel.onchange=function(){ setMode(sel.value); try{ var _f=document.getElementById('pvFit'); if(_f) _f.click(); }catch(e){} try{ if(isPqs()) window.hpPqsRender(); else renderPreview(); }catch(e){ try{ renderPreview(); }catch(_){} } };
-      var cb=document.getElementById('pqsCfgBtn'); if(cb) cb.onclick=function(){ var m=document.getElementById('pqsModal'); if(m){ m.style.display='flex'; renderPanel(); } };
+      var cb=document.getElementById('pqsCfgBtn'); if(cb) cb.onclick=function(){ var m=document.getElementById('pqsModal'); if(m){ m.style.display='flex'; renderPanel(); var b=document.getElementById('pqsBody'); if(b) b.scrollTop=0; } };
+      var eb=document.getElementById('pqsEditBtn'); if(eb) eb.onclick=function(){ var m=document.getElementById('pqsModal'); if(m){ m.style.display='flex'; renderPanel(); var b=document.getElementById('pqsBody'); if(b) b.scrollTop=0; var c=document.getElementById('pqsEdContact'); if(c) c.focus(); } };
     }
     var m=document.createElement('div'); m.id='pqsModal';
     m.style.cssText='display:none;position:fixed;inset:0;z-index:99999;background:rgba(10,20,35,.55);align-items:center;justify-content:center;padding:20px';
-    m.innerHTML='<div style="background:#fff;border-radius:10px;width:min(860px,96vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.3)"><div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e3e8ee"><b style="font-size:15px">📄 单品报价单 PQS · 模板信息（只读）</b><button type="button" id="pqsClose" style="border:0;background:#eef2f6;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px">关闭</button></div><div id="pqsBody" style="overflow:auto;padding:14px 16px"></div></div>';
+    m.innerHTML='<div style="background:#fff;border-radius:10px;width:min(860px,96vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.3)"><div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e3e8ee"><b style="font-size:15px">📄 单品报价单 PQS · 出单信息（联系人 / 价格可编辑）</b><button type="button" id="pqsClose" style="border:0;background:#eef2f6;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px">关闭</button></div><div id="pqsBody" style="overflow:auto;padding:14px 16px"></div></div>';
     document.body.appendChild(m);
     document.getElementById('pqsClose').onclick=function(){ m.style.display='none'; };
     m.addEventListener('click',function(ev){ if(ev.target===m) m.style.display='none'; });
