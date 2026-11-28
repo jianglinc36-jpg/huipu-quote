@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=185', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=186', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v185</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v186</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -1962,7 +1962,7 @@ var PQS_TPL_GROUPS=[
     ['grossWeight','毛重'],
     ['qtyCarton','每箱数量'],
     ['containerQty','装柜数量 · 个 / pcs（前端按外盒尺寸 + 每箱数量自动重算，此值仅作兜底）'],
-    ['hsCode','海关编码'],
+    ['hsCode','海关编码 / HS Code（所有产品页共用；留空自动带出系统默认）'],
     ['certificates','认证证书'],
     ['imgFit','图片显示方式（完整居中 = 图片不裁剪、四周留白对称；铺满裁剪 = 填满方框）','sel',['contain|完整居中（推荐 · 图片不裁剪）','cover|铺满裁剪（填满方框）']],
     ['imgPos','图片对齐位置（素材本身偏向哪边时，选对应方向即可调正）','sel',['center center|正中（推荐）','left center|靠左','right center|靠右','center top|靠上','center bottom|靠下','left top|左上','right top|右上','left bottom|左下','right bottom|右下']]
@@ -2037,6 +2037,16 @@ function pqsDedupeSpec(txt,dropPack){
   return {text:out.join('\n'),dup:dup,pack:pack};
 }
 /* v178：从资料库产品记录取价格（人民币底价优先，其次 USD EXW） */
+/* v186：系统默认海关编码——与员工端 PI 的 HS CODE 默认值一致。
+   后台「② 产品信息 → 海关编码」为权威来源；调取资料库 / 独立资料库时自动带出，
+   保存后广播到所有产品页，避免多产品出单时只有当前编辑页显示。 */
+var PQS_SYS_HS='8516310000/8516330000/8516320000';
+function pqsSysHs(){
+  try{
+    var s=SYS.settings||{}, p=s.pqs||{};
+    return String(p.hsCode||s.hs||'').trim()||PQS_SYS_HS;
+  }catch(e){ return PQS_SYS_HS; }
+}
 function pqsDbPrice(p){
   if(!p) return '';
   var r=p.price_rmb, u=p.price_usd_exw;
@@ -2081,6 +2091,8 @@ function pqsPullModel(m){
   pqsSet('pqsModel',m);
   pqsSet('modelNumber',m);
   pqsSet('productName',String(p.category||'')||m);
+  /* v186：资料库本身没有海关编码字段，调用后自动带出系统 / 后台设置的值，避免被清空 */
+  if(!String(($('pq_hsCode')||{}).value||'').trim()) pqsSet('hsCode',pqsSysHs());
   var _dd=pqsDedupeSpec(p.spec_text||'',true);
   pqsSet('features',_dd.text);
   var usw=[]; if(p.prod_size) usw.push(p.prod_size+' cm'); if(p.net_weight) usw.push(p.net_weight+' kg');
@@ -2184,7 +2196,12 @@ function pqsDbPull(m){
   var x=pqsDbFind(m);
   if(!x){ pqsHint('❌ 独立资料库里找不到版本「'+m+'」',false); return; }
   var s=x.snap||{};
-  PQS_PROD_FORM_KEYS.forEach(function(k){ pqsSet(k, s[k]!=null?String(s[k]):''); });
+  /* v186：独立版本里没存海关编码 / 认证证书时保留当前表单值，不再清空 */
+  PQS_PROD_FORM_KEYS.forEach(function(k){
+    if((k==='hsCode'||k==='certificates') && !String(s[k]==null?'':s[k]).trim()) return;
+    pqsSet(k, s[k]!=null?String(s[k]):'');
+  });
+  if(!String(s.hsCode||'').trim()) pqsSet('hsCode',pqsSysHs());
   try{ pqsSetPic('picture',String(s.picture||''),true); }catch(e){}
   try{ pqsSetPic('picture2',String(s.picture2||''),true); }catch(e){}
   try{ pqsRenderPicPrev(); }catch(e){}
@@ -2195,7 +2212,10 @@ function pqsDbAdd(m){
   var p=null; try{ p=effProduct(m); }catch(e){}
   if(!p||p._hidden){ pqsHint('❌ 现有资料库里没有可调用的型号「'+m+'」',false); return; }
   try{ pqsPullModel(m); }catch(e){}
-  var snap=pqsDbSnap(), ex=pqsDbFind(m), now=new Date().toISOString();
+  var snap=pqsDbSnap();
+  /* v186：独立资料库版本也固化海关编码（表单为空则带出系统默认） */
+  if(!String(snap.hsCode||'').trim()){ snap.hsCode=pqsSysHs(); pqsSet('hsCode',snap.hsCode); }
+  var ex=pqsDbFind(m), now=new Date().toISOString();
   if(ex){ ex.snap=snap; ex.label=String(p.category||''); ex.savedAt=now; }
   else _pqsDb.push({model:m,label:String(p.category||''),snap:snap,savedAt:now});
   pqsDbRefresh();
@@ -2261,7 +2281,7 @@ function pqsCfgHtml(p){
   var hid=Array.isArray(p.hiddenFields)?p.hiddenFields:[];
   var cus=Array.isArray(p.customParams)?p.customParams:[];
   var h='<div class="subttl" style="font-size:12.5px;font-weight:700;color:var(--brand2);margin:14px 0 6px">⑦ 参数增减与显示设置（可自定义）</div>'
-    +'<div class="hint" style="margin:0 0 10px;line-height:1.8">取消勾选 = 该参数不再出现在单品报价单上（内容仍保留，随时可恢复）；自定义参数可自由增加、删除，名称与取值都会随「报价单语言」自动翻译。绑定型号、展示型号、产品名称是单据基础信息，始终显示。<br><b style="color:#1a7a3c">留空的版块、留空的参数行一律自动不展示</b>，无需手动关闭。</div>'
+    +'<div class="hint" style="margin:0 0 10px;line-height:1.8">取消勾选 = 该参数不再出现在单品报价单上（内容仍保留，随时可恢复）；自定义参数可自由增加、删除，名称与取值都会随「报价单语言」自动翻译。绑定型号、展示型号、产品名称是单据基础信息，始终显示。<br><b style="color:#1a7a3c">留空的版块、留空的参数行一律自动不展示</b>，无需手动关闭。<br><b style="color:#1F4E79">v186：海关编码已与 PI 的 HS CODE 打通，留空自动带出系统默认 HS 编码并同步到所有产品页；若此处取消勾选「海关编码」则整块隐藏。</b></div>'
     +'<label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:12.5px;color:#8a5a00"><input type="checkbox" id="pqNoFallback"'+((p.noFallback)?' checked':'')+'> 后台留空的字段不自动调取资料库（勾选后：留空 = 单子上不显示；不勾选则沿用资料库数据兜底）</label>'
     +'<label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:12.5px;color:#1a7a3c"><input type="checkbox" id="pqPlugShow"'+((p.plugShow===false)?'':' checked')+'> 在产品图片下方显示「常用插头」示意图（图片已内置，所有款式共用，无需上传；取消勾选即整块隐藏）</label>'
     +'<div class="hint" style="margin:0 0 10px;line-height:1.8;color:#1F4E79">v179：装柜数量统一按「个 / pcs」实时核算（外盒尺寸 × 每箱数量，并受单箱毛重限制）；价格跟随员工端「报价币种」自动在人民币价 / 美金价之间切换。</div>'
@@ -2511,6 +2531,16 @@ function renderPqs(M){
       o.hiddenFields=_cfg.hiddenFields||[]; o.customParams=_cfg.customParams||[]; o.noFallback=!!_cfg.noFallback; o.plugShow=(_cfg.plugShow!==false);
       /* v175b：把当前编辑的产品写回清单，其余参数共用，导出时一产品一页 */
       try{ pqsProdSaveCurrent(); }catch(e){}
+      /* v186：海关编码是全单共用参数——顶层为空时带出系统默认 HS CODE，
+         并广播到所有产品页（产品页自己填了不同编码则保留自己的），
+         避免多产品出单时只有当前编辑那一页显示。 */
+      if(!String(o.hsCode||'').trim()){
+        o.hsCode=pqsSysHs();
+        var _he=$("pq_hsCode"); if(_he) _he.value=o.hsCode;
+      }
+      (Array.isArray(_pqsProducts)?_pqsProducts:[]).forEach(function(pp){
+        if(pp && !String(pp.hsCode||'').trim()) pp.hsCode=o.hsCode;
+      });
       o.products=_pqsProducts;
       o.pqsDb=_pqsDb;
       /* v173：保存前规格再自动去重一次 */
@@ -2590,7 +2620,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 185, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 186, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
