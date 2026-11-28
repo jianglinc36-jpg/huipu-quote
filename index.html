@@ -234,7 +234,7 @@
 <header>
   <div>
     <h1>慧普报价软件 · Huipu Quotation Generator</h1>
-    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v184</span></div>
+    <div class="sub">输入客户信息 + 型号，一键生成专属报价单（Excel / PI / PDF） · <span id="verText">版本 v185</span></div>
   </div>
   <div style="text-align:right">
     <button class="btn sm" id="updBtn" style="margin-bottom:6px;margin-right:6px" title="检查是否有新版本（后台改动需更新后才生效）">🔄 检查更新</button>
@@ -339,6 +339,7 @@
         <button class="btn sm" id="dbUpload">⬆ 上传资料到资料库</button>
         <button class="btn sm ghost" id="dbImgBatch">🖼 批量导入产品图</button>
         <button class="btn sm ghost" id="dbExport">⬇ 导出资料库备份</button>
+        <button class="btn sm ghost" id="dbImgClean">🧹 清理无用图片</button>
         <button class="btn sm ghost" id="dbPushCloud">☁ 立即同步到云端</button>
         <button class="btn sm ghost" id="dbClear">清空本地资料库</button>
       </div>
@@ -348,6 +349,7 @@
         支持格式：<b>CSV / TSV / TXT（分隔文本）</b>、<b>JSON</b>、<b>Excel（.xlsx/.xls）</b>、<b>Word（.docx）</b>、<b>PDF 产品册</b>。<br>
         上传后自动合并进资料库（同型号=覆盖更新）。表格首行为表头，支持列名：型号/Model（必填）、类别、功率、电压、频率、风速、档位、材质、装箱数、净重、毛重、内盒、外箱、起订量、底价RMB、底价USD、照片/图片、备注；其它列名会自动作为规格参数保留。<br>
         <b>批量导入产品图</b>：一次选多张图片，文件名（去掉后缀）即型号，自动写入对应型号的产品图。<br>
+        <b>🧹 清理无用图片</b>：自动备份后，删除已删除/隐藏型号的图片、清单里重复存的内置图与缓存图片，并把保留的自定义图压缩到高清网页尺寸；遇到「本机存储空间已满」时系统也会自动清理重试。<br>
         Word/PDF 为<b>智能提取</b>（按文中型号规律识别，文档越规整越准，导入后请到资料库核对补充参数）。
       </div>
       <hr style="border:none;border-top:1px dashed #ddd;margin:12px 0">
@@ -863,12 +865,22 @@ function mergeDbImages(){
 mergeDbImages();
 // 保存前把图片 dataURL 从主数据剥离（主数据小而快；图片单独一份数据）
 function splitDbImages(){
+  /* v185：孤儿型号（已删除 / 隐藏）的图片一律不再落盘，避免云端拉回后反复复活、撑满本机存储 */
+  var _act=null; try{ _act=hpActiveModels(); }catch(e){}
+  var _filter=!!(_act&&Object.keys(_act).length);
   const imgs={}, ov={};
   Object.keys(DB.overrides||{}).forEach(m=>{
     const o=DB.overrides[m]||{};
-    if(o.img){ imgs[m]=o.img; const c=Object.assign({},o); delete c.img; ov[m]=c; }
-    else ov[m]=o;
+    const c=Object.assign({},o); delete c.img;
+    if(o.img && (!_filter || _act[m])) imgs[m]=o.img;
+    ov[m]=c;
   });
+  try{
+    Object.keys(DB.custom||{}).forEach(function(m){
+      var c=DB.custom[m];
+      if(c&&c.img&&_filter&&!_act[m]) delete c.img;
+    });
+  }catch(e){}
   return {db:{overrides:ov,custom:DB.custom||{},specLib:DB.specLib||[]}, imgs:imgs};
 }
 function saveDB(){
@@ -876,8 +888,8 @@ function saveDB(){
   const ok=saveJSON(DB_KEY,s.db);
   const okImg=saveJSON(DBIMG_KEY,s.imgs);
   refreshDbInfo();
-  if(!ok){ try{ syncBadge("⚠ 资料库保存失败（本机存储已满），请导出备份后清理图片"); }catch(e){} return false; }
-  if(!okImg){ try{ syncBadge("⚠ 图片保存失败（本机存储已满），参数已保存；请清理不常用图片后重试"); }catch(e){} }
+  if(!ok){ try{ syncBadge("⚠ 资料库保存失败（本机存储已满），请点「🧹 清理无用图片」"); }catch(e){} return false; }
+  if(!okImg){ try{ syncBadge("⚠ 图片保存失败（本机存储已满），参数已保存；请点「🧹 清理无用图片」"); }catch(e){} }
   if(WS.isOwner && cloudReady() && WS.loaded && !WS.locked) debouncedPush(); // 管理员资料库改动自动上传云端，员工端打开即同步
   return true;
 }
@@ -917,8 +929,12 @@ function refreshDbInfo(){
   const nO=Object.keys(DB.overrides).length;
   const nS=(DB.specLib||[]).length;
   let _sz=0; try{ _sz=((localStorage.getItem(DB_KEY)||"").length*2)/1024; }catch(e){}
+  let _isz=0,_tot=0;
+  try{ _isz=((localStorage.getItem(DBIMG_KEY)||"").length*2)/1024; }catch(e){}
+  try{ for(var _si=0;_si<localStorage.length;_si++){ var _sk=localStorage.key(_si)||""; _tot+=(_sk.length+(localStorage.getItem(_sk)||"").length)*2/1024; } }catch(e){}
+  const _mb=function(x){ return x>=1024?(x/1024).toFixed(1)+" MB":Math.round(x)+" KB"; };
   const nImg=Object.keys(DB.overrides||{}).filter(m=>DB.overrides[m]&&DB.overrides[m].img).length;
-  $("dbInfo").textContent = "当前资料库：内置 "+PRODUCTS.length+" 型号 + 本地新增 "+nC+" = "+(PRODUCTS.length+nC)+"；已更新参数型号："+nO+" 个；常用规格参数 "+nS+" 条。 · 自定义图片 "+nImg+" 张 · 本机资料库占用约 "+Math.round(_sz)+" KB";
+  $("dbInfo").textContent = "当前资料库：内置 "+PRODUCTS.length+" 型号 + 本地新增 "+nC+" = "+(PRODUCTS.length+nC)+"；已更新参数型号："+nO+" 个；常用规格参数 "+nS+" 条。 · 自定义图片 "+nImg+" 张 · 资料库约 "+_mb(_sz)+" · 图片通道约 "+_mb(_isz)+" · 本机共约 "+_mb(_tot)+"（浏览器上限约 5 MB）";
   $("dbStat").textContent = "产品库："+(PRODUCTS.length+nC)+" 型号 · 报价语言："+Object.keys(LANGS).length+" 种";
 }
 /* ---------- 常用规格参数库：填写即自动收集，便于下次跨型号复用 ---------- */
@@ -1265,6 +1281,205 @@ let items = []; // {model, desc, spec, packing, moq, qty, price}
 
 /* ---------- state persistence ---------- */
 function loadJSON(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch(e){ return def; } }
+/* ================= v185：无用图片清理器 =================
+   现象：点「⤴ 更新到数据库」弹「本机存储空间已满，资料库本次未能保存」。
+   根因：① 每个清单条目都把内置产品图 base64 又存了一份（huipu_items_v1 冗余）；
+        ② 已删除 / 隐藏型号的图片仍留在 huipu_dbimg_v1 与 huipu_dbimg_m_*；
+        ③ 用户上传的原图未经压缩（单张可达数 MB），整库图片字典越滚越大。
+   处理：保留「当前资料库 + 当前清单 + PQS 模板」用到的图，其余全部清掉；
+        保留的自定义图统一压缩到长边 900px / ≤90KB（不丢图，报价单显示足够清晰）；
+        清理前自动下载一份完整备份；配额满时 saveJSON 先自动清理再重试，不再直接失败。 */
+var HP_IMG_M_PFX = 'huipu_dbimg_m_';
+var _hpCleaning = false;
+function hpIsImg(v){ return typeof v==='string' && v.length>200 && /^data:image\//i.test(v); }
+function hpKb(v){ return (String(v==null?'':v).length*2)/1024; }
+function hpActiveModels(){
+  var s={};
+  try{ PRODUCTS.forEach(function(p){ if(p&&p.model&&!isHiddenModel(p.model)) s[p.model]=1; }); }catch(e){}
+  try{ Object.keys(DB.custom||{}).forEach(function(m){ if(m&&!isHiddenModel(m)) s[m]=1; }); }catch(e){}
+  try{ (items||[]).forEach(function(it){ if(it&&it.model&&!isHiddenModel(it.model)) s[it.model]=1; }); }catch(e){}
+  /* PQS 模板 / 独立资料库引用的型号也算在用 */
+  try{
+    var pq=loadJSON('huipu_pqs_v1',null);
+    if(pq&&typeof pq==='object'){
+      if(pq.modelNumber) s[pq.modelNumber]=1;
+      (pq.products||[]).forEach(function(x){ if(x&&x.modelNumber) s[x.modelNumber]=1; if(x&&x.model) s[x.model]=1; });
+      (pq.pqsDb||[]).forEach(function(x){ if(x&&x.model) s[x.model]=1; });
+    }
+  }catch(e){}
+  return s;
+}
+function hpStorageTop(n){
+  var rows=[];
+  try{
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i)||'';
+      var v=localStorage.getItem(k)||'';
+      rows.push({k:k,kb:Math.round((k.length+v.length)*2/1024)});
+    }
+  }catch(e){}
+  rows.sort(function(x,y){ return y.kb-x.kb; });
+  return rows.slice(0,n||5);
+}
+function hpCleanUnusedImages(opt){
+  opt=opt||{};
+  var act=hpActiveModels();
+  var removed=0, freedKB=0, kept=null, itemsChanged=false;
+  /* ① 整库图片字典：只保留在用的型号 */
+  var imgs=loadJSON(DBIMG_KEY,null);
+  if(imgs&&typeof imgs==='object'&&!Array.isArray(imgs)){
+    var nxt={};
+    Object.keys(imgs).forEach(function(m){
+      if(act[m]&&hpIsImg(imgs[m])) nxt[m]=imgs[m];
+      else { removed++; freedKB+=hpKb(imgs[m]); }
+    });
+    kept=nxt;
+    try{ localStorage.setItem(DBIMG_KEY,JSON.stringify(nxt)); }catch(e){}
+  }
+  /* ② per-model 独立键里的孤儿 */
+  try{
+    var del=[];
+    for(var j=0;j<localStorage.length;j++){
+      var k=localStorage.key(j)||'';
+      if(k.indexOf(HP_IMG_M_PFX)===0&&!act[k.slice(14)]){
+        freedKB+=hpKb(localStorage.getItem(k)||''); removed++; del.push(k);
+      }
+    }
+    del.forEach(function(k){ try{ localStorage.removeItem(k); }catch(e){} });
+  }catch(e){}
+  /* ③ DB 内存里的孤儿图 */
+  try{
+    Object.keys(DB.overrides||{}).forEach(function(m){
+      var o=DB.overrides[m];
+      if(o&&o.img&&!act[m]){ freedKB+=hpKb(o.img); removed++; delete o.img; }
+    });
+    Object.keys(DB.custom||{}).forEach(function(m){
+      var c=DB.custom[m];
+      if(c&&c.img&&!act[m]){ freedKB+=hpKb(c.img); removed++; delete c.img; }
+    });
+    try{ localStorage.setItem(DB_KEY,JSON.stringify(splitDbImages().db)); }catch(e){}
+  }catch(e){}
+  /* ④ 清单里重复存的内置图：清空即可，itemImg() 会自动回退内置图库，显示完全不变 */
+  try{
+    (items||[]).forEach(function(it){
+      if(!it||!it.img||!hpIsImg(it.img)) return;
+      var arr=IMAGES[it.model]||[];
+      if(arr.indexOf(it.img)>=0){ freedKB+=hpKb(it.img); it.img=''; removed++; itemsChanged=true; }
+    });
+    if(itemsChanged){ try{ localStorage.setItem(ITEMS_KEY,JSON.stringify(items)); }catch(e){} }
+  }catch(e){}
+  /* ⑤ 缓存 / 错误日志里夹带的图片 */
+  try{
+    var d2=[];
+    for(var q=0;q<localStorage.length;q++){
+      var kk=localStorage.key(q)||'';
+      if(/^huipu_(tpl_cache|last_err|last_chk|auto_upd|trans_cache|img_cache)/.test(kk)){
+        var vv=localStorage.getItem(kk)||'';
+        if(vv.indexOf('data:image/')>=0){ freedKB+=hpKb(vv); removed++; d2.push(kk); }
+      }
+    }
+    d2.forEach(function(k){ try{ localStorage.removeItem(k); }catch(e){} });
+  }catch(e){}
+  if(!opt.silent){ try{ refreshDbInfo(); }catch(e){} }
+  return {removed:removed,freedKB:freedKB,kept:kept,active:act,itemsChanged:itemsChanged};
+}
+function hpShrinkImg(url){
+  return new Promise(function(resolve){
+    if(!hpIsImg(url)){ resolve(url); return; }
+    var done=false;
+    function fin(v){ if(done) return; done=true; resolve(v); }
+    try{
+      var im=new Image();
+      im.onload=function(){
+        try{
+          var w=im.naturalWidth||im.width, h=im.naturalHeight||im.height;
+          var sc=Math.min(1,900/Math.max(w,h));
+          var c=document.createElement('canvas');
+          c.width=Math.max(1,Math.round(w*sc)); c.height=Math.max(1,Math.round(h*sc));
+          var cx=c.getContext('2d'); cx.fillStyle='#fff'; cx.fillRect(0,0,c.width,c.height); cx.drawImage(im,0,0,c.width,c.height);
+          var q=0.78,out=url;
+          do{ out=c.toDataURL('image/jpeg',q); q-=0.1; }while(out.length>90000&&q>0.35);
+          fin(out.length<url.length?out:url);
+        }catch(e){ fin(url); }
+      };
+      im.onerror=function(){ fin(url); };
+      im.src=url;
+      setTimeout(function(){ fin(url); },8000);
+    }catch(e){ fin(url); }
+  });
+}
+async function hpCompressKeptImages(act,rep){
+  var jobs=[], imgs=loadJSON(DBIMG_KEY,null)||{}, changed=false;
+  Object.keys(imgs).forEach(function(m){
+    if(!act[m]||!hpIsImg(imgs[m])) return;
+    var old=imgs[m];
+    jobs.push(hpShrinkImg(old).then(function(v){
+      if(v!==old){
+        rep.savedKB+=hpKb(old)-hpKb(v); rep.compressed++; imgs[m]=v; changed=true;
+        try{ if(DB.overrides[m]&&DB.overrides[m].img===old) DB.overrides[m].img=v; }catch(e){}
+        try{ if(DB.custom[m]&&DB.custom[m].img===old) DB.custom[m].img=v; }catch(e){}
+      }
+    }));
+  });
+  try{
+    (items||[]).forEach(function(it){
+      if(!it||!hpIsImg(it.img)) return;
+      var o2=it.img;
+      jobs.push(hpShrinkImg(o2).then(function(v){
+        if(v!==o2){ rep.savedKB+=hpKb(o2)-hpKb(v); rep.compressed++; it.img=v; changed=true; }
+      }));
+    });
+  }catch(e){}
+  try{
+    Object.keys(DB.custom||{}).forEach(function(m){
+      var c=DB.custom[m]; if(!c||!hpIsImg(c.img)) return;
+      var o3=c.img;
+      jobs.push(hpShrinkImg(o3).then(function(v){
+        if(v!==o3){ rep.savedKB+=hpKb(o3)-hpKb(v); rep.compressed++; c.img=v; changed=true; }
+      }));
+    });
+  }catch(e){}
+  await Promise.all(jobs);
+  if(changed){
+    try{ localStorage.setItem(DBIMG_KEY,JSON.stringify(imgs)); }catch(e){}
+    try{ localStorage.setItem(DB_KEY,JSON.stringify(splitDbImages().db)); }catch(e){}
+    try{ localStorage.setItem(ITEMS_KEY,JSON.stringify(items)); }catch(e){}
+  }
+  return rep;
+}
+async function hpCleanAllImages(btn){
+  var old=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='🧹 正在清理…'; }
+  try{
+    /* 清理前自动下载一份完整备份（含全部图片），随时可恢复 */
+    try{
+      var bak={_app:'huipu-quotation',_type:'image-clean-backup',_at:new Date().toISOString(),db:DB,dbimg:loadJSON(DBIMG_KEY,null)||{},items:items};
+      var blob=new Blob([JSON.stringify(bak)],{type:'application/json'});
+      var nm='huipu_图片清理备份_'+new Date().toISOString().slice(0,10)+'.json';
+      if(typeof triggerDownload==='function') triggerDownload(blob,nm,'图片清理前备份');
+      else { var aa=document.createElement('a'); aa.href=URL.createObjectURL(blob); aa.download=nm; document.body.appendChild(aa); aa.click(); aa.remove(); }
+    }catch(e){}
+    var r=hpCleanUnusedImages({silent:true});
+    var rep={compressed:0,savedKB:0};
+    try{ await hpCompressKeptImages(r.active,rep); }catch(e){}
+    try{ localStorage.setItem(DB_KEY,JSON.stringify(splitDbImages().db)); }catch(e){}
+    try{ localStorage.setItem(ITEMS_KEY,JSON.stringify(items)); }catch(e){}
+    try{ refreshDbInfo(); renderItems(); renderPreview(); }catch(e){}
+    var total=r.freedKB+rep.savedKB;
+    var size=total>=1024?(total/1024).toFixed(1)+' MB':Math.round(total)+' KB';
+    var top=hpStorageTop(3).map(function(x){ return x.k+'（'+x.kb+' KB）'; }).join('、');
+    var msg='✅ 无用图片已清理完成\n\n'
+      +'· 删除无用图片：'+r.removed+' 张（已删除/隐藏型号、清单里重复存的内置图、缓存图片）\n'
+      +'· 压缩保留图片：'+rep.compressed+' 张（长边 900px，报价单显示清晰，原图已备份）\n'
+      +'· 共释放约 '+size+'\n'
+      +'· 清理前备份已自动下载，需要时可恢复\n'
+      +(top?'\n当前占用最大的本机数据：'+top+'\n':'')
+      +'\n现在可以点「⤴ 更新到数据库」了。';
+    try{ alert(msg); }catch(e){}
+    try{ syncBadge('🧹 已清理 '+r.removed+' 张无用图片、压缩 '+rep.compressed+' 张，释放约 '+size); }catch(e){}
+  } finally { if(btn){ btn.disabled=false; btn.textContent=old||'🧹 清理无用图片'; } }
+}
+
 let _quotaWarned=false;
 function saveJSON(k,v){
   try{ localStorage.setItem(k,JSON.stringify(v)); return true; }
@@ -1272,9 +1487,22 @@ function saveJSON(k,v){
     // 写入失败（绝大多数是本机存储配额被图片 base64 撑满）必须让用户知道，
     // 否则「更新到数据库」看似成功、实际没存上，下次打开又回到旧数据。
     const quota = !!(e && (e.name==="QuotaExceededError"||e.name==="NS_ERROR_DOM_QUOTA_REACHED"||e.code===22||e.code===1014));
+    /* v185：配额满先自动清一次无用图片，再用清理后的数据重试；不再直接弹「保存失败」 */
+    if(quota && !_hpCleaning){
+      _hpCleaning=true;
+      try{
+        var c=hpCleanUnusedImages({silent:true});
+        var retryV=(k===DBIMG_KEY && c.kept)?c.kept:v;
+        try{
+          localStorage.setItem(k,JSON.stringify(retryV));
+          if(c.removed){ try{ syncBadge('🧹 存储已满：已自动清理 '+c.removed+' 张无用图片并保存成功'); }catch(_){} }
+          return true;
+        }catch(e2){}
+      } finally { _hpCleaning=false; }
+    }
     if(quota && !_quotaWarned){
       _quotaWarned=true;
-      try{ alert("⚠ 本机存储空间已满，资料库本次未能保存！\n\n原因：资料库里累积了较多产品图片（每张图片约占几百 KB）。\n请点「⬇ 导出资料库备份」留一份备份，再删除不常用的自定义图片，然后重新点「更新到数据库」。"); }catch(_){}
+      try{ alert("⚠ 本机存储空间不足，本次未保存成功！\n\n已自动清理无用图片仍不够。\n请到「资料库管理」点「🧹 清理无用图片」（会自动备份、删除无用图并压缩保留图），然后再点「⤴ 更新到数据库」。"); }catch(_){}
     }
     try{ console.warn("saveJSON failed", k, e); }catch(_){}
     return false;
@@ -3233,7 +3461,7 @@ function renderItems(){
     if(!PROD_MAP[it.model]&&!DB.custom[it.model]) DB.custom[it.model]={model:it.model, note:it.desc||"", category:"自定义产品"};
     const ok=saveDB();
     if(ok){ alert("「"+it.model+"」已导入资料库 ✓\n（管理员改动自动同步云端全组可用；下次选用该型号自动带出参数/图片/包装）"); syncBadge("已入库："+it.model+" ✓"); }
-    else alert("⚠ 本机存储已满，未保存成功。\n请先「导出资料库备份」并清理不常用图片后重试。");
+    else alert("⚠ 本机存储已满，未保存成功。\n请到「资料库管理」点「🧹 清理无用图片」后再重试。");
     try{ refreshDbInfo(); }catch(e){}
   });
   box.querySelectorAll("[data-p]").forEach(inp=> inp.oninput=()=>{ items[+inp.dataset.p].price=fromCur(parseFloat(inp.value)||0); renderPreview(); persistAll(); });
@@ -4659,6 +4887,10 @@ function bind(){
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href),2000);
   };
+  $("dbImgClean").onclick=function(){
+    if(!confirm("将自动备份并清理：已删除/隐藏型号的图片、清单里重复存的内置图、缓存图片；保留的自定义图会压缩到高清网页尺寸（不影响报价单显示，原图已备份）。\n\n继续清理？")) return;
+    hpCleanAllImages(this);
+  };
   $("dbPushCloud").onclick=async function(){
     const b=this;
     if(!cloudReady()||!WS.loaded||WS.locked){ alert("请先登录并解锁工作区后同步。"); return; }
@@ -4802,7 +5034,7 @@ async function updateDbFromQuote(){
   try{ renderItems(); renderPreview(); refreshDbInfo(); }catch(e){}
   let msg= savedOk
     ? ("已把 "+n+" 个型号的最新参数更新到资料库 ✓\n（已写入本机资料库，下次选用该型号自动带出；管理员改动会同步云端给全组）")
-    : ("⚠ 本机存储已满，本次资料库未保存成功！\n请先「导出资料库备份」，再清理部分产品图片后重试。");
+    : ("⚠ 本机存储已满，本次资料库未保存成功！\n请到「资料库管理」点「🧹 清理无用图片」后重试。");
   if(savedOk && WS.isOwner) msg+="\n· 已推送云端：所有员工端打开即自动同步到这批最新参数/图片/价格（30 秒内）。";
     +"\n· 更新规格参数："+specSaved+" 个（只增不减，已有参数保留）"
     +"\n· 图片入库："+imgs+" 张（上传/更换过的自定义图）"
@@ -5637,7 +5869,7 @@ var PV90_FEATURES=[
  {k:"pushdb",sel:"#pushDb"},
  {k:"sheets",sel:"#saveCust"},
  {k:"pricing",sel:"#cardPricing"},
- {k:"dbimport",sel:"#dbUpload,#dbImgBatch,#dbExport,#dbPushCloud,#dbClear"},
+ {k:"dbimport",sel:"#dbUpload,#dbImgBatch,#dbExport,#dbImgClean,#dbPushCloud,#dbClear"},
  {k:"addmodel",sel:"#cardAdd"},
  {k:"selleredit",sel:"#cardSeller"},
  {k:"custedit",sel:"#cardCust"},
@@ -5793,7 +6025,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     window.addEventListener('load',function(){
       try{
-        navigator.serviceWorker.register('./sw.js?v=184', { updateViaCache: 'none' }).then(function(reg){
+        navigator.serviceWorker.register('./sw.js?v=185', { updateViaCache: 'none' }).then(function(reg){
           try{ if(reg && reg.update) reg.update(); }catch(e){}
         }).catch(function(e){ /* offline not critical */ });
       }catch(e){}
@@ -5991,7 +6223,7 @@ window.addEventListener("load",function(){ try{ pv90TagCards(); }catch(e){} });
         2) 发现新版 → 自动清 Service Worker + Cache Storage 后整页重载；
         3) 启动即查、每 5 分钟查、切回前台也查；带防抖避免 CDN 未同步时反复刷新。 */
 (function(){
-  var APP_VER = 184;
+  var APP_VER = 185;
   var CHECK_MS = 5 * 60 * 1000;         // 定时检查间隔
   var AUTO_GAP = 30 * 60 * 1000;        // 两次「自动整页更新」的最小间隔（防 CDN 延迟造成刷新循环）
   var BOOT_GRACE = 60000;               // 打开后 60 秒内允许无感自动更新
