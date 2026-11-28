@@ -90,7 +90,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js?v=183', { updateViaCache: 'none' }).then(function (reg) {
+        navigator.serviceWorker.register('./sw.js?v=184', { updateViaCache: 'none' }).then(function (reg) {
           try { if (reg && reg.update) reg.update(); } catch (e) {}
         }).catch(function () {});
       } catch (e) {}
@@ -102,7 +102,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand2)}
 
 <header>
   <h1>🏭 慧普报价 · 后台管理</h1>
-  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v183</span></span>
+  <span class="hint" style="color:#cfe0f2">数据与报价软件实时互通 · <span id="adminVer">v184</span></span>
   <span class="sp"></span>
   <span class="who" id="whoBox"></span>
   <button id="btnOpenApp">打开报价软件</button>
@@ -262,6 +262,134 @@ async function hpRestDirect(ms){
     return JSON.parse(txt)||[];
   }finally{ if(tm) clearTimeout(tm); }
 }
+/* ================= v184：后台「上传 / 保存」加固 =================
+   旧链路：saveSys() → writeStateKeys() → supabase-js 的 update()，
+   网络慢 / 会话自动刷新挂起时请求会一直 pending；外层 withTimeout(30s)
+   抛「请求超时，请重试」并 alert 阻塞，用户看到「后台无法上传保存」，
+   且底层请求并未取消，重复点保存只会继续排队超时。
+   现链路：① 模板先写本机待同步队列（刷新 / 断网 / 关页面都不丢）；
+   ② 用本地登录 JWT 直连 PostgREST（自带独立 AbortController 超时，
+      绕开 supabase-js 的会话刷新等待），PATCH 命中不到再 upsert 插入；
+   ③ 失败不弹错误、不禁用界面，20 秒一轮自动重试，恢复后自动补写并提示；
+   ④ 全程状态条可见；员工端仍按云端 settings.pqs 同步，互不影响。 */
+var PQS_PENDING_KEY = 'hp_admin_pqs_pending_v1';
+var _pqsSyncing = false, _pqsSyncTimer = null, _pqsPendingMem = null;
+function hpRestTok(){ return hpRestToken(); }
+function hpRestGetState(ms){
+  var tok=hpRestTok();
+  if(!tok) return Promise.reject(new Error('本地登录凭证缺失，请重新登录后台'));
+  var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+  var tm=ctl?setTimeout(function(){ try{ ctl.abort(); }catch(e){} },ms||8000):null;
+  return fetch(SUPABASE_URL+'/rest/v1/quotation_state?select=workspace_id,data&workspace_id=eq.'+encodeURIComponent(WS_ID),{
+    headers:{apikey:SUPABASE_ANON,Authorization:'Bearer '+tok},
+    cache:'no-store', signal:ctl?ctl.signal:undefined
+  }).then(function(r){
+    return r.text().then(function(t){
+      if(!r.ok) throw new Error('HTTP '+r.status+' '+t.slice(0,120));
+      var j=JSON.parse(t||'[]');
+      return (j&&j[0]&&j[0].data)||{};
+    });
+  }).finally(function(){ if(tm) clearTimeout(tm); });
+}
+function hpRestWriteState(merged,ms){
+  var tok=hpRestTok();
+  if(!tok) return Promise.reject(new Error('本地登录凭证缺失，请重新登录后台'));
+  var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+  var tm=ctl?setTimeout(function(){ try{ ctl.abort(); }catch(e){} },ms||20000):null;
+  var iso=new Date().toISOString();
+  var H={apikey:SUPABASE_ANON,Authorization:'Bearer '+tok,'Content-Type':'application/json'};
+  var url=SUPABASE_URL+'/rest/v1/quotation_state?workspace_id=eq.'+encodeURIComponent(WS_ID)+'&select=workspace_id';
+  function patch(){
+    return fetch(url,{method:'PATCH',headers:Object.assign({},H,{'Prefer':'return=representation'}),
+      body:JSON.stringify({data:merged,updated_at:iso}),cache:'no-store',signal:ctl?ctl.signal:undefined})
+      .then(function(r){ return r.text().then(function(t){
+        if(!r.ok) throw new Error('HTTP '+r.status+' '+t.slice(0,140));
+        var arr=[]; try{ arr=JSON.parse(t||'[]'); }catch(e){}
+        return (arr&&arr.length)?'updated':'missing';
+      }); });
+  }
+  function upsert(){
+    return fetch(SUPABASE_URL+'/rest/v1/quotation_state?on_conflict=workspace_id',{
+      method:'POST',headers:Object.assign({},H,{'Prefer':'resolution=merge-duplicates,return=minimal'}),
+      body:JSON.stringify({workspace_id:WS_ID,owner_id:(ME&&ME.uid)||'',data:merged,updated_at:iso}),
+      cache:'no-store',signal:ctl?ctl.signal:undefined})
+      .then(function(r){ if(r.ok) return 'inserted'; return r.text().then(function(t){ throw new Error('HTTP '+r.status+' '+t.slice(0,140)); }); });
+  }
+  return patch().then(function(s){ return s==='updated'?true:upsert().then(function(){ return true; }); })
+    .catch(function(e){
+      var m=String((e&&e.message)||e||'');
+      if(/401|403|JWT|jwt|permission|RLS/i.test(m)) throw new Error('登录状态已失效或没有写入权限，请重新登录后台');
+      if(/abort|AbortError|timeout|超时/i.test(m)) throw new Error('云端响应超时，稍后自动重试');
+      if(/statement timeout|canceling statement/i.test(m)) throw new Error('云端正忙，稍后自动重试');
+      throw e;
+    }).finally(function(){ if(tm) clearTimeout(tm); });
+}
+function pqsPendingRead(){
+  var raw=null; try{ raw=localStorage.getItem(PQS_PENDING_KEY); }catch(e){}
+  if(raw){ try{ return JSON.parse(raw); }catch(e){} }
+  return _pqsPendingMem;
+}
+function pqsQueuePending(o){
+  var p={at:Date.now(),o:o};
+  _pqsPendingMem=p;
+  try{ localStorage.setItem(PQS_PENDING_KEY,JSON.stringify(p)); return true; }
+  catch(e){ return false; } /* 缓存配额不足时仍保留在内存，页面不关就不丢 */
+}
+function pqsState(txt,color){
+  try{ var st=$('pqSaveState'); if(st){ st.textContent=txt; st.style.color=color||'#666'; } }catch(e){}
+}
+function pqsScheduleSync(){
+  if(_pqsSyncTimer) return;
+  _pqsSyncTimer=setInterval(function(){
+    if(!pqsPendingRead()){ clearInterval(_pqsSyncTimer); _pqsSyncTimer=null; return; }
+    pqsSyncPending(true);
+  },20000);
+}
+async function pqsSyncPending(fromTimer){
+  if(_pqsSyncing) return null;
+  var pend=pqsPendingRead();
+  if(!pend||!pend.o) return true;
+  _pqsSyncing=true;
+  var lastErr='';
+  try{
+    /* 取云端全量底：优先直连 GET（8s），失败用页面加载时的缓存，保证不覆盖其它云键 */
+    var base=null;
+    try{ base=await hpRestGetState(8000); }catch(e){ lastErr=String((e&&e.message)||e||''); }
+    if(!base||!Object.keys(base).length) base=_stateCache;
+    if(!base||!Object.keys(base).length) lastErr=lastErr||'本机还没有云端数据缓存，请重新登录后台';
+    else{
+      var merged=Object.assign({},base);
+      var sys=Object.assign({},merged[SYS_KEY]||{});
+      sys.settings=Object.assign({},sys.settings||{});
+      sys.settings.pqs=pend.o;
+      merged[SYS_KEY]=sys;
+      for(var att=0;att<3;att++){
+        if(att) await new Promise(function(rs){ setTimeout(rs,1500*att); });
+        try{
+          await hpRestWriteState(merged,20000);
+          _stateCache=merged; SYS=sys;
+          try{ localStorage.removeItem(PQS_PENDING_KEY); }catch(e){}
+          _pqsPendingMem=null;
+          if(_pqsSyncTimer){ clearInterval(_pqsSyncTimer); _pqsSyncTimer=null; }
+          pqsState('✅ 保存成功 · '+new Date().toLocaleTimeString('zh-CN',{hour12:false})+' 已写入云端','#1a7a3c');
+          try{ badge('✅ 模板已同步到云端（员工端刷新或 1 分钟内自动生效）',true,6000); }catch(e){}
+          return true;
+        }catch(e){ lastErr=String((e&&e.message)||e||''); }
+      }
+    }
+  } finally { _pqsSyncing=false; }
+  if(fromTimer){
+    pqsState('⚠ 云端暂未同步（已存本机，自动重试中）：'+lastErr.slice(0,54),'#9a5b00');
+    try{ badge('⚠ 模板已存本机，云端同步中，将自动重试',false,8000); var b=$('sysBadge'); if(b) b.style.background='#9a5b00'; }catch(e){}
+  }
+  pqsScheduleSync();
+  return false;
+}
+/* v184：打开后台 3 秒后自动补传上次未同步的模板；网络恢复 / 切回前台立即再试 */
+setTimeout(function(){ try{ pqsScheduleSync(); pqsSyncPending(true); }catch(e){} },3000);
+window.addEventListener('online',function(){ try{ pqsSyncPending(true); }catch(e){} });
+document.addEventListener('visibilitychange',function(){ try{ if(document.visibilityState==='visible') pqsSyncPending(true); }catch(e){} });
+
 function hpSavesOK(rows){
   _savesCache=rows; hpSavesCacheWrite(rows); _savesOfflineAt=null; return rows;
 }
@@ -434,10 +562,15 @@ async function _writeStateCore(patch){
           merged[DB_KEY].specCands=_stateCache[DB_KEY].specCands||[];
         }
       }catch(e){}
-      var r=await cloud.database.from("quotation_state").update({data:merged,updated_at:new Date().toISOString()}).eq("workspace_id",WS_ID).select("workspace_id");
+      /* v184：优先直连 PostgREST（自带 AbortController 超时），绕开 supabase-js 会话刷新挂起 */
+      try{
+        await hpRestWriteState(merged,15000);
+        _stateCache=merged; lastErr=null; break;
+      }catch(e){ /* 直连失败（未登录 / 权限 / 网络）：回退原有 supabase-js 链路 */ }
+      var r=await withTimeout(cloud.database.from("quotation_state").update({data:merged,updated_at:new Date().toISOString()}).eq("workspace_id",WS_ID).select("workspace_id"),20000);
       if(r.error) throw r.error;
       if(r.data&&r.data.length){ _stateCache=merged; lastErr=null; break; }
-      var r2=await cloud.database.from("quotation_state").insert({workspace_id:WS_ID,owner_id:ME.uid,data:merged,updated_at:new Date().toISOString()});
+      var r2=await withTimeout(cloud.database.from("quotation_state").insert({workspace_id:WS_ID,owner_id:ME.uid,data:merged,updated_at:new Date().toISOString()}),15000);
       if(r2.error) throw r2.error;
       _stateCache=merged; lastErr=null; break;
     }catch(e){
@@ -2369,50 +2502,35 @@ function renderPqs(M){
       badge(t,false,ms||6000);
       try{ var b=$("sysBadge"); if(b) b.style.background=c||'#1F4E79'; }catch(_){}
     };
-    setState('正在连接云端…','#1F4E79',true);
-    bag('⏳ 正在保存模板到云端…','#1F4E79',8000);
+    setState('正在整理模板数据…','#1F4E79',true);
     try{
       var o={picture:$("pq_picture")?$("pq_picture").value:'', picture2:$("pq_picture2")?$("pq_picture2").value:''};
       pqsAllFields().forEach(function(f){ var el=$("pq_"+f[0]); o[f[0]]=el?String(el.value||'').trim():''; });
-      /* v175：参数显示开关 + 自定义参数一并保存（仍只写云端模板配置这一项） */
+      /* v175：参数显示开关 + 自定义参数一并保存 */
       var _cfg={}; try{ _cfg=pqsCollectCfg(); }catch(e){}
       o.hiddenFields=_cfg.hiddenFields||[]; o.customParams=_cfg.customParams||[]; o.noFallback=!!_cfg.noFallback; o.plugShow=(_cfg.plugShow!==false);
       /* v175b：把当前编辑的产品写回清单，其余参数共用，导出时一产品一页 */
       try{ pqsProdSaveCurrent(); }catch(e){}
       o.products=_pqsProducts;
       o.pqsDb=_pqsDb;
-      /* v173：保存前规格再自动去重一次，保证云端模板里不留重复行 */
+      /* v173：保存前规格再自动去重一次 */
       var _sd=pqsDedupeSpec(o.features||'',false);
       if(_sd.dup){ o.features=_sd.text; var _fe=$("pq_features"); if(_fe) _fe.value=_sd.text; }
-      /* v171：保存前尽力重读云端最新整行并以云端 SYS 为底。
-         v177：云端不稳时不再「取消保存」——重读超时改用本机数据继续保存并明确提示，
-         保证后台改的参数永远存得进去（用户反馈：保存失败→云端读取超时→已取消保存）。 */
-      var _cloudWarn='';
-      try{
-        var _st=await withTimeout(readState(true),10000);
-        var _cs=_st&&_st[SYS_KEY];
-        if(_cs&&typeof _cs==='object') SYS=_cs;
-      }catch(e){
-        _cloudWarn='⚠ 云端读取超时：已按本机数据保存，网络恢复后请再点一次保存确认同步';
-      }
-      setState('云端已连接，正在写入…','#1F4E79',true);
-      SYS.settings=SYS.settings||{};
       o._savedAt=new Date().toISOString();
+      SYS.settings=SYS.settings||{};
       SYS.settings.pqs=o;
-      await withTimeout(saveSys(),30000);
-      var _t=new Date().toLocaleTimeString('zh-CN',{hour12:false});
-      setState(_cloudWarn?('✅ 已保存 · '+_t+'（按本机数据）'):('✅ 保存成功 · '+_t+' 已写入云端'),_cloudWarn?'#9a5b00':'#1a7a3c',false);
-      bag(_cloudWarn||'✅ 模板已保存到云端（员工端刷新或 1 分钟内自动同步生效）',_cloudWarn?'#9a5b00':'#2e7d32',_cloudWarn?10000:6000);
+      /* v184：先落本机（刷新 / 断网都不丢），立即反馈成功；云端在后台写入并自动重试 */
+      var local=pqsQueuePending(o);
+      setState(local?'✅ 已保存到本机，正在同步云端…':'⚠ 本机缓存已满，数据暂留本页，请勿关闭窗口，正在同步云端…',local?'#9a5b00':'#c5221f',false);
+      bag(local?'✅ 模板已保存（本机），正在同步云端…':'⚠ 本机缓存不足，正在同步云端，请勿关闭本页',local?'#9a5b00':'#c5221f',8000);
+      pqsSyncPending(true); /* 不 await：界面立即可继续操作，同步结果自动刷新状态条 */
     }catch(e){
       var m=String((e&&e.message)||e||'未知错误');
-      var _to=/超时|timeout/i.test(m);
-      setState((_to?'⚠ 云端响应超时：':'❌ 保存失败：')+m+(_to?'（可能仍在写入，请稍后刷新本页看「云端上次保存」确认）':''),_to?'#9a5b00':'#c5221f',false);
-      bag((_to?'⚠ 保存超时：':'❌ 保存失败：')+m,_to?'#9a5b00':'#c5221f',10000);
-      try{ alert('保存失败：'+m); }catch(_){}
+      setState('❌ 保存失败：'+m,'#c5221f',false);
+      bag('❌ 保存失败：'+m,'#c5221f',10000);
     }
   };
 }
-
 
 function renderSettings(M){
   var s=SYS.settings||{};
@@ -2472,7 +2590,7 @@ window.addEventListener("load",function(){
 <script>
 /* ===== v140 后台自更新（提醒 + 一键更新，避免后台跑旧代码写出旧格式数据） ===== */
 (function(){
-  var ADMIN_VER = 183, _busy=false, _bar=null, _remote=0;
+  var ADMIN_VER = 184, _busy=false, _bar=null, _remote=0;
   function toast(t,ms){
     try{ var b=document.getElementById('sysBadge'); if(b){ b.textContent=t; b.style.display='block'; setTimeout(function(){ b.style.display='none'; }, ms||4000); return; } }catch(e){}
     try{ console.log(t); }catch(e){}
